@@ -65,6 +65,9 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, customization = defaultC
   const [vrm, setVrm] = useState<VRM | null>(null)
   const t = useRef(0)
   const originalColorsRef = useRef<Map<string, THREE.Color>>(new Map())
+  const blinkTimer = useRef(0)
+  const blinkProgress = useRef(0)
+  const nextBlinkIn = useRef(1.5 + Math.random() * 2.8)
 
   const happySpring = useSpring(0, { stiffness: 120, damping: 20 })
   const sadSpring = useSpring(0, { stiffness: 120, damping: 20 })
@@ -177,23 +180,40 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, customization = defaultC
       exp.setValue("relaxed", relaxedSpring.get())
       exp.setValue("surprised", surprisedSpring.get())
 
+      // Natural blinking: random cadence + quick close/open profile.
+      blinkTimer.current += delta
+      if (blinkTimer.current > nextBlinkIn.current) {
+        blinkTimer.current = 0
+        blinkProgress.current = 1
+        nextBlinkIn.current = 1.8 + Math.random() * 3.4
+      }
+      blinkProgress.current = Math.max(0, blinkProgress.current - delta * 5.8)
+      const blink = Math.sin(blinkProgress.current * Math.PI)
+
       const speakingPulse = mode === "speaking" ? Math.abs(Math.sin(t.current * 14)) * 0.1 : 0
-      exp.setValue("aa", THREE.MathUtils.clamp(mouthSpring.get() + speakingPulse, 0, 1))
-      exp.setValue("ih", mode === "speaking" ? mouthSpring.get() * 0.35 : 0)
-      exp.setValue("ou", mode === "speaking" ? mouthSpring.get() * 0.2 : 0)
-      exp.setValue("ee", 0)
-      exp.setValue("oh", 0)
+      const mouth = THREE.MathUtils.clamp(mouthSpring.get() + speakingPulse, 0, 1)
+      exp.setValue("blink", blink)
+      exp.setValue("aa", mouth)
+      exp.setValue("ih", mode === "speaking" ? mouth * 0.35 : 0)
+      exp.setValue("ou", mode === "speaking" ? mouth * 0.2 : 0)
+      exp.setValue("ee", mode === "speaking" ? mouth * 0.15 : 0)
+      exp.setValue("oh", mode === "speaking" ? mouth * 0.25 : 0)
     }
 
     const baseY = mode === "listening" ? -0.99 : -1.04
     const bobSpeed = mode === "speaking" ? 2 : mode === "listening" ? 1.6 : 1.1
     const bobAmp = mode === "speaking" ? 0.016 : mode === "listening" ? 0.011 : 0.007
+    const idleSway = Math.sin(t.current * 0.72) * 0.03
     vrm.scene.position.y = baseY + Math.sin(t.current * bobSpeed) * bobAmp
+    vrm.scene.rotation.y = Math.PI + idleSway
 
     if (vrm.humanoid) {
       const neck = vrm.humanoid.getNormalizedBoneNode("neck")
+      const chest = vrm.humanoid.getNormalizedBoneNode("chest")
       const leftUpperArm = vrm.humanoid.getNormalizedBoneNode("leftUpperArm")
       const rightUpperArm = vrm.humanoid.getNormalizedBoneNode("rightUpperArm")
+      const leftLowerArm = vrm.humanoid.getNormalizedBoneNode("leftLowerArm")
+      const rightLowerArm = vrm.humanoid.getNormalizedBoneNode("rightLowerArm")
       const spine = vrm.humanoid.getNormalizedBoneNode("spine")
 
       if (neck) {
@@ -203,8 +223,15 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, customization = defaultC
         neck.rotation.z = THREE.MathUtils.damp(neck.rotation.z, vibe === "Serious" ? 0.06 : 0, 6, delta)
       }
 
+      if (chest) {
+        const breath = 0.022 + (mode === "speaking" ? 0.012 : 0)
+        const breathWave = Math.sin(t.current * (mode === "speaking" ? 2.2 : 1.4)) * breath
+        chest.rotation.x = THREE.MathUtils.damp(chest.rotation.x, breathWave, 5, delta)
+      }
+
       if (leftUpperArm && rightUpperArm) {
         const wave = Math.sin(t.current * 5.5) * 0.25
+        const speakGesture = mode === "speaking" ? Math.sin(t.current * 4.8) * 0.18 : 0
         const joyfulWave = vibe === "Joyful" ? wave : 0
         const excitedLift = vibe === "Excited" ? 0.35 : 0
         const empatheticOpen = vibe === "Empathetic" ? 0.22 : 0
@@ -213,12 +240,18 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, customization = defaultC
         leftUpperArm.rotation.z = THREE.MathUtils.damp(leftUpperArm.rotation.z, -0.08 - empatheticOpen + seriousFold, 5, delta)
         rightUpperArm.rotation.z = THREE.MathUtils.damp(rightUpperArm.rotation.z, 0.08 + empatheticOpen - seriousFold, 5, delta)
 
-        leftUpperArm.rotation.x = THREE.MathUtils.damp(leftUpperArm.rotation.x, excitedLift * 0.6, 5, delta)
-        rightUpperArm.rotation.x = THREE.MathUtils.damp(rightUpperArm.rotation.x, joyfulWave + excitedLift, 6, delta)
+        leftUpperArm.rotation.x = THREE.MathUtils.damp(leftUpperArm.rotation.x, excitedLift * 0.6 + speakGesture * 0.5, 5, delta)
+        rightUpperArm.rotation.x = THREE.MathUtils.damp(rightUpperArm.rotation.x, joyfulWave + excitedLift + speakGesture, 6, delta)
+      }
+
+      if (leftLowerArm && rightLowerArm) {
+        const gesture = mode === "speaking" ? Math.sin(t.current * 5.1) * 0.28 : 0
+        leftLowerArm.rotation.z = THREE.MathUtils.damp(leftLowerArm.rotation.z, -0.06 + gesture * 0.45, 6, delta)
+        rightLowerArm.rotation.z = THREE.MathUtils.damp(rightLowerArm.rotation.z, 0.06 - gesture * 0.45, 6, delta)
       }
 
       if (spine) {
-        const targetSpineY = vibe === "Chill" ? -0.08 : vibe === "Excited" ? 0.1 : 0
+        const targetSpineY = (vibe === "Chill" ? -0.08 : vibe === "Excited" ? 0.1 : 0) + Math.sin(t.current * 0.9) * 0.04
         spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, targetSpineY, 4, delta)
       }
     }
