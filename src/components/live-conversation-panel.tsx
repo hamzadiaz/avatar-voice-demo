@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { EmotionAnalysis } from "@/components/emotion-analysis"
 import { TranscriptPanel } from "@/components/transcript-panel"
 import { VibeDisplay } from "@/components/vibe-display"
-import { VRMAvatarCanvas, type AvatarCustomization, type AvatarMode } from "@/components/avatar/vrm-avatar-canvas"
+import { type AvatarMode } from "@/components/avatar/vrm-avatar-canvas"
 import { SpriteAvatarCanvas } from "@/components/avatar/sprite-avatar-canvas"
 import { EMOTIONAL_MIRRORING_INSTRUCTION } from "@/lib/constants"
 import { type GeminiVoiceName, type VoiceGender } from "@/lib/media-utils"
@@ -77,16 +77,9 @@ function AudioRings({ level }: { level: number }) {
 
 export function LiveConversationPanel({ voice, gender, languageCode, mirroring }: LiveConversationPanelProps) {
   const [textPrompt, setTextPrompt] = useState("")
-  const [avatarLoading, setAvatarLoading] = useState(true)
   const [speechRate, setSpeechRate] = useState(1)
   const [speechPitch, setSpeechPitch] = useState(0)
-  const [customization, setCustomization] = useState<AvatarCustomization>({
-    skinTone: 0.5,
-    hairColor: "#2d2d35",
-    outfitColor: "#5eead4",
-  })
   const [isSharing, setIsSharing] = useState(false)
-  const [avatarRenderer, setAvatarRenderer] = useState<"sprite" | "vrm">("sprite")
 
   const dynamicInstruction = `${EMOTIONAL_MIRRORING_INSTRUCTION}\nEmotional mirroring intensity (0-100): ${Math.round(mirroring)}.`
   const captureRef = useRef<HTMLDivElement | null>(null)
@@ -119,7 +112,6 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     return "Idle"
   }, [connectionState])
 
-  const avatarUrl = gender === "male" ? "/avatars/male.vrm" : "/avatars/female.vrm"
   const memoryWindow = 8
   const rememberedMessages = Math.min(memoryWindow, transcript.length)
 
@@ -219,18 +211,7 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
         <CardContent className="space-y-4">
           <div ref={captureRef} className="space-y-3 rounded-2xl border border-cyan-500/20 bg-zinc-950/80 p-2">
             <div className="relative flex min-h-[290px] items-center justify-center overflow-hidden rounded-2xl border border-zinc-800 bg-transparent sm:min-h-[360px]">
-              {avatarRenderer === "sprite" ? (
-                <SpriteAvatarCanvas gender={gender} vibe={aiVibe} mode={avatarMode} audioLevel={aiAudioLevel} className="h-[320px] w-full sm:h-[380px]" />
-              ) : (
-                <VRMAvatarCanvas avatarUrl={avatarUrl} vibe={aiVibe} mode={avatarMode} audioLevel={aiAudioLevel} customization={customization} className="h-[320px] w-full sm:h-[380px]" onLoadStateChange={setAvatarLoading} />
-              )}
-              {avatarRenderer === "vrm" && avatarLoading ? (
-                <div className="absolute inset-0 z-20 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm">
-                  <div className="flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/90 px-4 py-2 text-sm text-zinc-300">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Loading avatar
-                  </div>
-                </div>
-              ) : null}
+              <SpriteAvatarCanvas gender={gender} vibe={aiVibe} mode={avatarMode} audioLevel={aiAudioLevel} className="h-[320px] w-full sm:h-[380px]" />
               {avatarMode === "speaking" ? <AudioRings level={Math.max(aiAudioLevel, 0.12)} /> : null}
             </div>
 
@@ -266,49 +247,8 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
           </div>
 
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-            <div className="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-wide text-zinc-400">
-              Avatar customizer
-              <div className="flex gap-1">
-                <Button type="button" size="sm" variant={avatarRenderer === "sprite" ? "default" : "outline"} onClick={() => setAvatarRenderer("sprite")}>Realistic</Button>
-                <Button type="button" size="sm" variant={avatarRenderer === "vrm" ? "default" : "outline"} onClick={() => setAvatarRenderer("vrm")}>3D VRM</Button>
-              </div>
-            </div>
-            {avatarRenderer === "vrm" ? (
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div>
-                  <div className="mb-1 text-xs text-zinc-400">Skin tone</div>
-                  <Input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={customization.skinTone}
-                    onChange={(e) => setCustomization((prev) => ({ ...prev, skinTone: Number(e.target.value) }))}
-                    className="accent-cyan-400"
-                  />
-                </div>
-                <div>
-                  <div className="mb-1 text-xs text-zinc-400">Hair color</div>
-                  <Input
-                    type="color"
-                    value={customization.hairColor}
-                    onChange={(e) => setCustomization((prev) => ({ ...prev, hairColor: e.target.value }))}
-                    className="h-10 w-full cursor-pointer rounded-md border-zinc-700 bg-zinc-900 p-1"
-                  />
-                </div>
-                <div>
-                  <div className="mb-1 text-xs text-zinc-400">Outfit color</div>
-                  <Input
-                    type="color"
-                    value={customization.outfitColor}
-                    onChange={(e) => setCustomization((prev) => ({ ...prev, outfitColor: e.target.value }))}
-                    className="h-10 w-full cursor-pointer rounded-md border-zinc-700 bg-zinc-900 p-1"
-                  />
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-zinc-400">AI-generated portrait mode is active for maximum realism. Switch to 3D VRM to use advanced mesh customization.</p>
-            )}
+            <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">Avatar renderer</div>
+            <p className="text-xs text-zinc-400">Realistic portrait mode is enabled by default. The 3D VRM renderer is temporarily hidden while motion quality improvements are in progress.</p>
           </div>
 
           <div className="flex flex-wrap gap-2">
