@@ -1,21 +1,33 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { motion } from "framer-motion"
-import { Sparkles } from "lucide-react"
+import { AnimatePresence, motion } from "framer-motion"
+import { ArrowRight, Languages, Settings2, SlidersHorizontal, Sparkles } from "lucide-react"
 import { GenderSelector } from "@/components/gender-selector"
 import { LiveConversationPanel } from "@/components/live-conversation-panel"
-import { TtsDemo } from "@/components/tts-demo"
 import { VoiceSelector } from "@/components/voice-selector"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select } from "@/components/ui/select"
 import { DEFAULT_TTS_MODEL, GEMINI_VOICES, TTS_MODELS, type GeminiVoiceName, type TTSModelId, type VoiceGender } from "@/lib/media-utils"
 
+type Step = "hero" | "gender" | "voice" | "conversation"
+
+const LANGUAGE_OPTIONS = [
+  { value: "en-US", label: "English (US)" },
+  { value: "es-ES", label: "Español (ES)" },
+  { value: "fr-FR", label: "Français (FR)" },
+  { value: "ar-SA", label: "العربية" },
+]
+
 export default function Home() {
+  const [step, setStep] = useState<Step>("hero")
   const [gender, setGender] = useState<VoiceGender>("female")
   const [voice, setVoice] = useState<GeminiVoiceName>("Kore")
   const [model, setModel] = useState<TTSModelId>(DEFAULT_TTS_MODEL)
+  const [languageCode, setLanguageCode] = useState("en-US")
+  const [mirroring, setMirroring] = useState(72)
 
   const currentVoiceValid = useMemo(() => GEMINI_VOICES.some((v) => v.name === voice && v.gender === gender), [voice, gender])
 
@@ -27,47 +39,107 @@ export default function Home() {
   }, [currentVoiceValid, gender])
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 md:px-8">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-        <Badge className="mb-3 border-cyan-500/30 text-cyan-300"><Sparkles className="mr-1 h-3 w-3" /> Avatar Voice Demo</Badge>
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-100 md:text-5xl">Pick Voice, Feel the Vibe</h1>
-        <p className="mt-2 text-zinc-400">Gender + voice presets, TTS, and Gemini Live conversation with real-time emotion plane.</p>
-      </motion.div>
+    <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
+      <AnimatePresence mode="wait">
+        {step === "hero" ? (
+          <motion.section
+            key="hero"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="relative overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70 p-8 md:p-14"
+          >
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(34,211,238,0.2),transparent_45%),radial-gradient(circle_at_30%_90%,rgba(244,114,182,0.18),transparent_40%)]" />
+            <div className="relative z-10 mx-auto max-w-3xl text-center">
+              <Badge className="mb-4 border-cyan-500/30 text-cyan-300"><Sparkles className="mr-1 h-3 w-3" /> Avatar Voice Demo</Badge>
+              <h1 className="text-4xl font-semibold tracking-tight text-zinc-100 md:text-6xl">Talk to your AI. Face to face.</h1>
+              <p className="mx-auto mt-4 max-w-2xl text-zinc-300 md:text-lg">Choose a voice, mirror emotion in real-time, and chat with a live animated avatar that feels present.</p>
+              <Button onClick={() => setStep("gender")} className="mt-8 h-12 px-8 text-base">
+                Start Experience <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </motion.section>
+        ) : null}
 
-      <div className="space-y-6">
-        <Card>
-          <CardHeader><CardTitle>1) Choose Gender</CardTitle></CardHeader>
-          <CardContent>
-            <GenderSelector value={gender} onChange={setGender} />
-          </CardContent>
-        </Card>
+        {step !== "hero" ? (
+          <motion.section
+            key={step}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="space-y-6"
+          >
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <Badge className="mb-2 border-cyan-500/30 text-cyan-300">Avatar Voice Demo</Badge>
+                <h2 className="text-2xl font-semibold text-zinc-100 md:text-3xl">
+                  {step === "gender" ? "Choose your avatar style" : step === "voice" ? "Pick and preview your voice" : "Live conversation"}
+                </h2>
+              </div>
+              {step !== "conversation" ? (
+                <Button variant="ghost" onClick={() => setStep("hero")}>Back to hero</Button>
+              ) : null}
+            </div>
 
-        <Card>
-          <CardHeader><CardTitle>2) Pick Voice + Preview</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <VoiceSelector value={voice} onChange={setVoice} gender={gender} model={model} />
-            <Select
-              value={model}
-              onChange={(e) => setModel(e.target.value as TTSModelId)}
-              options={TTS_MODELS.map((m) => ({ value: m.id, label: `${m.name} — ${m.description}` }))}
-            />
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Settings2 className="h-4 w-4" /> Settings</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-xs text-zinc-400"><Languages className="h-3.5 w-3.5" /> Language</div>
+                  <Select value={languageCode} onChange={(e) => setLanguageCode(e.target.value)} options={LANGUAGE_OPTIONS} />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs text-zinc-400">TTS model</div>
+                  <Select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value as TTSModelId)}
+                    options={TTS_MODELS.map((m) => ({ value: m.id, label: `${m.name} — ${m.description}` }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-zinc-400"><SlidersHorizontal className="h-3.5 w-3.5" /> Emotion sync: {mirroring}%</div>
+                  <input type="range" min={0} max={100} value={mirroring} onChange={(e) => setMirroring(Number(e.target.value))} className="w-full accent-cyan-400" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader><CardTitle>3) Text-to-Speech Mode</CardTitle></CardHeader>
-          <CardContent>
-            <TtsDemo voice={voice} model={model} />
-          </CardContent>
-        </Card>
+            {step === "gender" ? (
+              <Card>
+                <CardHeader><CardTitle>1) Choose Gender</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <GenderSelector value={gender} onChange={setGender} />
+                  <Button onClick={() => setStep("voice")} className="w-full md:w-auto">Continue <ArrowRight className="h-4 w-4" /></Button>
+                </CardContent>
+              </Card>
+            ) : null}
 
-        <Card>
-          <CardHeader><CardTitle>4) Full-Screen Live Conversation</CardTitle></CardHeader>
-          <CardContent>
-            <LiveConversationPanel voice={voice} gender={gender} />
-          </CardContent>
-        </Card>
-      </div>
+            {step === "voice" ? (
+              <Card>
+                <CardHeader><CardTitle>2) Pick Voice + Preview</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <VoiceSelector value={voice} onChange={setVoice} gender={gender} model={model} />
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button variant="outline" onClick={() => setStep("gender")}>Back</Button>
+                    <Button onClick={() => setStep("conversation")} className="sm:ml-auto">Go live <ArrowRight className="h-4 w-4" /></Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {step === "conversation" ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => setStep("voice")}>Change voice</Button>
+                  <Button variant="ghost" onClick={() => setStep("hero")}>Home</Button>
+                </div>
+                <LiveConversationPanel voice={voice} gender={gender} languageCode={languageCode} mirroring={mirroring} />
+              </div>
+            ) : null}
+          </motion.section>
+        ) : null}
+      </AnimatePresence>
     </main>
   )
 }

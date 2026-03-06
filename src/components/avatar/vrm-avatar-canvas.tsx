@@ -17,6 +17,7 @@ interface VRMAvatarCanvasProps {
   mode: AvatarMode
   audioLevel: number
   className?: string
+  onLoadStateChange?: (loading: boolean) => void
 }
 
 type EmotionShape = {
@@ -35,7 +36,7 @@ const VIBE_TO_EMOTION: Record<VibeType, EmotionShape> = {
   Empathetic: { happy: 0.25, sad: 0.25, relaxed: 0.45, surprised: 0 },
 }
 
-function LoadedVRM({ avatarUrl, vibe, mode, audioLevel }: Omit<VRMAvatarCanvasProps, "className">) {
+function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, onLoadStateChange }: Omit<VRMAvatarCanvasProps, "className">) {
   const [vrm, setVrm] = useState<VRM | null>(null)
   const t = useRef(0)
 
@@ -47,6 +48,8 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel }: Omit<VRMAvatarCanvasPr
 
   useEffect(() => {
     let disposed = false
+    onLoadStateChange?.(true)
+
     const loader = new GLTFLoader()
     loader.crossOrigin = "anonymous"
     loader.register((parser) => new VRMLoaderPlugin(parser))
@@ -67,10 +70,12 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel }: Omit<VRMAvatarCanvasPr
         loaded.scene.rotation.y = Math.PI
         loaded.scene.position.set(0, -1.04, 0)
         setVrm(loaded)
+        onLoadStateChange?.(false)
       },
       undefined,
       (error) => {
         console.error("Failed to load VRM", error)
+        onLoadStateChange?.(false)
       }
     )
 
@@ -85,7 +90,7 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel }: Omit<VRMAvatarCanvasPr
         return null
       })
     }
-  }, [avatarUrl])
+  }, [avatarUrl, onLoadStateChange])
 
   const emotion = useMemo(() => VIBE_TO_EMOTION[vibe], [vibe])
 
@@ -132,9 +137,49 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel }: Omit<VRMAvatarCanvasPr
 
     if (vrm.humanoid) {
       const neck = vrm.humanoid.getNormalizedBoneNode("neck")
+      const leftUpperArm = vrm.humanoid.getNormalizedBoneNode("leftUpperArm")
+      const rightUpperArm = vrm.humanoid.getNormalizedBoneNode("rightUpperArm")
+      const spine = vrm.humanoid.getNormalizedBoneNode("spine")
+
       if (neck) {
-        const targetRotX = mode === "listening" ? 0.06 : 0
+        const thinkingTilt = vibe === "Serious" ? 0.1 : 0
+        const targetRotX = (mode === "listening" ? 0.06 : 0) + thinkingTilt
         neck.rotation.x = THREE.MathUtils.damp(neck.rotation.x, targetRotX, 6, delta)
+        neck.rotation.z = THREE.MathUtils.damp(neck.rotation.z, vibe === "Serious" ? 0.06 : 0, 6, delta)
+      }
+
+      if (leftUpperArm && rightUpperArm) {
+        const wave = Math.sin(t.current * 5.5) * 0.25
+        const joyfulWave = vibe === "Joyful" ? wave : 0
+        const excitedLift = vibe === "Excited" ? 0.35 : 0
+        const empatheticOpen = vibe === "Empathetic" ? 0.22 : 0
+        const seriousFold = vibe === "Serious" ? 0.18 : 0
+
+        leftUpperArm.rotation.z = THREE.MathUtils.damp(
+          leftUpperArm.rotation.z,
+          -0.08 - empatheticOpen + seriousFold,
+          5,
+          delta
+        )
+        rightUpperArm.rotation.z = THREE.MathUtils.damp(
+          rightUpperArm.rotation.z,
+          0.08 + empatheticOpen - seriousFold,
+          5,
+          delta
+        )
+
+        leftUpperArm.rotation.x = THREE.MathUtils.damp(leftUpperArm.rotation.x, excitedLift * 0.6, 5, delta)
+        rightUpperArm.rotation.x = THREE.MathUtils.damp(
+          rightUpperArm.rotation.x,
+          joyfulWave + excitedLift,
+          6,
+          delta
+        )
+      }
+
+      if (spine) {
+        const targetSpineY = vibe === "Chill" ? -0.08 : vibe === "Excited" ? 0.1 : 0
+        spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, targetSpineY, 4, delta)
       }
     }
   })
@@ -143,7 +188,7 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel }: Omit<VRMAvatarCanvasPr
   return <primitive object={vrm.scene} />
 }
 
-export function VRMAvatarCanvas({ avatarUrl, vibe, mode, audioLevel, className }: VRMAvatarCanvasProps) {
+export function VRMAvatarCanvas({ avatarUrl, vibe, mode, audioLevel, className, onLoadStateChange }: VRMAvatarCanvasProps) {
   return (
     <div className={className}>
       <Canvas dpr={[1, 2]} gl={{ antialias: true, alpha: true }} camera={{ fov: 26, position: [0, 1.2, 2.2], near: 0.1, far: 100 }}>
@@ -152,7 +197,7 @@ export function VRMAvatarCanvas({ avatarUrl, vibe, mode, audioLevel, className }
         <pointLight intensity={0.25} position={[-2, 2.2, 1]} />
 
         <Suspense fallback={null}>
-          <LoadedVRM avatarUrl={avatarUrl} vibe={vibe} mode={mode} audioLevel={audioLevel} />
+          <LoadedVRM avatarUrl={avatarUrl} vibe={vibe} mode={mode} audioLevel={audioLevel} onLoadStateChange={onLoadStateChange} />
           <Environment preset="city" />
         </Suspense>
       </Canvas>
