@@ -2,6 +2,8 @@
 
 import { motion } from "framer-motion"
 import { User, UserRound } from "lucide-react"
+import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import type { VoiceGender } from "@/lib/media-utils"
 import { cn } from "@/lib/utils"
 
@@ -17,27 +19,25 @@ export function GenderSelector({ value, onChange }: GenderSelectorProps) {
   ]
 
   return (
-    <div className="grid gap-5 md:grid-cols-2">
+    <div className="grid gap-4 md:grid-cols-2">
       {cards.map((card) => {
         const selected = card.value === value
         const Icon = card.icon
         return (
-          <motion.button
-            key={card.value}
-            type="button"
-            onClick={() => onChange(card.value)}
-            whileHover={{ y: -2 }}
-            className={cn(
-              "group relative overflow-hidden rounded-3xl border p-8 text-left transition-all",
-              selected
-                ? "border-cyan-400/60 bg-gradient-to-br from-cyan-500/15 to-blue-500/10"
-                : "border-zinc-800 bg-zinc-950/60 hover:border-zinc-600"
-            )}
-          >
-            <Icon className={cn("mb-6 h-20 w-20", selected ? "text-cyan-300" : "text-zinc-400")} />
-            <div className="text-2xl font-semibold text-zinc-100">{card.label}</div>
-            <div className="mt-1 text-sm text-zinc-400">Voice persona filter</div>
-          </motion.button>
+          <motion.div key={card.value} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -2 }}>
+            <Card className={cn("transition-colors", selected ? "border-cyan-400/60 bg-gradient-to-br from-cyan-500/10 to-blue-500/10" : "hover:border-zinc-500") }>
+              <CardContent className="space-y-4 p-6">
+                <Icon className={cn("h-16 w-16", selected ? "text-cyan-300" : "text-zinc-400")} />
+                <div>
+                  <div className="text-xl font-semibold text-zinc-100">{card.label}</div>
+                  <div className="mt-1 text-sm text-zinc-400">Voice persona filter</div>
+                </div>
+                <Button variant={selected ? "default" : "secondary"} className="w-full" onClick={() => onChange(card.value)} aria-label={`Select ${card.label} voice persona`}>
+                  {selected ? "Selected" : `Choose ${card.label}`}
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
         )
       })}
     </div>

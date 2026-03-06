@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { motion } from "framer-motion"
 import { Play, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { GEMINI_VOICES, pcm16ToFloat32, type GeminiVoiceName, type VoiceGender, type TTSModelId } from "@/lib/media-utils"
 import { cn } from "@/lib/utils"
 
@@ -54,14 +55,20 @@ export function VoiceSelector({ value, onChange, gender, model, disabled }: Voic
         const selected = value === voice.name
         const busy = previewing === voice.name
         return (
-          <motion.div key={voice.name} whileHover={{ y: -2 }} className={cn("rounded-2xl border p-4", selected ? "border-cyan-400/60 bg-cyan-500/10" : "border-zinc-800 bg-zinc-900/60")}>
-            <button type="button" disabled={disabled} onClick={() => onChange(voice.name)} className="mb-3 block w-full text-left disabled:opacity-60">
-              <div className="text-base font-semibold text-zinc-100">{voice.name}</div>
-              <div className="text-xs text-zinc-400">{voice.style}</div>
-            </button>
-            <Button size="sm" variant="outline" className="w-full" onClick={() => playPreview(voice.name)} disabled={disabled || busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Preview
-            </Button>
+          <motion.div key={voice.name} whileHover={{ y: -2 }}>
+            <Card className={cn("transition-colors", selected ? "border-cyan-400/60 bg-cyan-500/10" : "hover:border-zinc-500")}>
+              <CardContent className="p-4">
+                <Button type="button" disabled={disabled} onClick={() => onChange(voice.name)} variant="ghost" className="mb-3 h-auto w-full justify-start px-0 py-1 text-left disabled:opacity-60">
+                  <span>
+                    <span className="block text-base font-semibold text-zinc-100">{voice.name}</span>
+                    <span className="block text-xs text-zinc-400">{voice.style}</span>
+                  </span>
+                </Button>
+                <Button size="sm" variant="outline" className="w-full" onClick={() => playPreview(voice.name)} disabled={disabled || busy} aria-label={`Preview voice ${voice.name}`}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Preview
+                </Button>
+              </CardContent>
+            </Card>
           </motion.div>
         )
       })}

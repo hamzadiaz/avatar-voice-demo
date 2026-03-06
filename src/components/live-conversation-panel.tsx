@@ -1,14 +1,16 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Loader2, Mic, MicOff, Send } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import html2canvas from "html2canvas"
+import { Camera, Loader2, MemoryStick, Mic, MicOff, Send, Share2, Sparkles, Volume2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { EmotionAnalysis } from "@/components/emotion-analysis"
 import { TranscriptPanel } from "@/components/transcript-panel"
 import { VibeDisplay } from "@/components/vibe-display"
-import { VRMAvatarCanvas, type AvatarMode } from "@/components/avatar/vrm-avatar-canvas"
+import { VRMAvatarCanvas, type AvatarCustomization, type AvatarMode } from "@/components/avatar/vrm-avatar-canvas"
 import { EMOTIONAL_MIRRORING_INSTRUCTION } from "@/lib/constants"
 import { type GeminiVoiceName, type VoiceGender } from "@/lib/media-utils"
 import { useGeminiLive } from "@/hooks/use-gemini-live"
@@ -18,6 +20,45 @@ interface LiveConversationPanelProps {
   gender: VoiceGender
   languageCode: string
   mirroring: number
+}
+
+function playMicClick() {
+  const ctx = new AudioContext()
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.type = "triangle"
+  osc.frequency.setValueAtTime(820, ctx.currentTime)
+  osc.frequency.exponentialRampToValueAtTime(540, ctx.currentTime + 0.06)
+  gain.gain.setValueAtTime(0.001, ctx.currentTime)
+  gain.gain.exponentialRampToValueAtTime(0.09, ctx.currentTime + 0.01)
+  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.08)
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start()
+  osc.stop(ctx.currentTime + 0.09)
+  void ctx.close()
+}
+
+function playConnectedChime() {
+  const ctx = new AudioContext()
+  const now = ctx.currentTime
+  const gain = ctx.createGain()
+  gain.gain.value = 0.06
+  gain.connect(ctx.destination)
+
+  ;[660, 880, 1047].forEach((freq, i) => {
+    const osc = ctx.createOscillator()
+    osc.type = "sine"
+    osc.frequency.value = freq
+    osc.connect(gain)
+    const start = now + i * 0.08
+    osc.start(start)
+    osc.stop(start + 0.11)
+  })
+
+  setTimeout(() => {
+    void ctx.close()
+  }, 520)
 }
 
 function AudioRings({ level }: { level: number }) {
@@ -36,12 +77,36 @@ function AudioRings({ level }: { level: number }) {
 export function LiveConversationPanel({ voice, gender, languageCode, mirroring }: LiveConversationPanelProps) {
   const [textPrompt, setTextPrompt] = useState("")
   const [avatarLoading, setAvatarLoading] = useState(true)
-  const dynamicInstruction = `${EMOTIONAL_MIRRORING_INSTRUCTION}\nEmotional mirroring intensity (0-100): ${Math.round(mirroring)}.`
+  const [speechRate, setSpeechRate] = useState(1)
+  const [speechPitch, setSpeechPitch] = useState(0)
+  const [customization, setCustomization] = useState<AvatarCustomization>({
+    skinTone: 0.5,
+    hairColor: "#2d2d35",
+    outfitColor: "#5eead4",
+  })
+  const [isSharing, setIsSharing] = useState(false)
 
-  const { connectionState, toggle, aiVibe, transcript, userProsody, aiProsody, sendTextPrompt, clearTranscript, aiAudioLevel, userAudioLevel } = useGeminiLive({
+  const dynamicInstruction = `${EMOTIONAL_MIRRORING_INSTRUCTION}\nEmotional mirroring intensity (0-100): ${Math.round(mirroring)}.`
+  const captureRef = useRef<HTMLDivElement | null>(null)
+
+  const {
+    connectionState,
+    toggle,
+    disconnect,
+    aiVibe,
+    transcript,
+    userProsody,
+    aiProsody,
+    sendTextPrompt,
+    clearTranscript,
+    aiAudioLevel,
+    userAudioLevel,
+  } = useGeminiLive({
     voiceName: voice,
     systemInstruction: dynamicInstruction,
     languageCode,
+    speechRate,
+    speechPitch,
   })
 
   const isConnected = connectionState === "connected"
@@ -53,6 +118,8 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
   }, [connectionState])
 
   const avatarUrl = gender === "male" ? "/avatars/male.vrm" : "/avatars/female.vrm"
+  const memoryWindow = 8
+  const rememberedMessages = Math.min(memoryWindow, transcript.length)
 
   const avatarMode = useMemo<AvatarMode>(() => {
     if (!isConnected) return "idle"
@@ -61,49 +128,196 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     return "idle"
   }, [aiAudioLevel, isConnected, userAudioLevel])
 
+  useEffect(() => {
+    if (isConnected) playConnectedChime()
+  }, [isConnected])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        if (event.key === "Enter" && textPrompt.trim() && isConnected) {
+          event.preventDefault()
+          sendTextPrompt(textPrompt)
+          setTextPrompt("")
+        }
+        return
+      }
+
+      if (event.code === "Space") {
+        event.preventDefault()
+        playMicClick()
+        toggle()
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault()
+        disconnect()
+      }
+
+      if (event.key === "Enter" && textPrompt.trim() && isConnected) {
+        event.preventDefault()
+        sendTextPrompt(textPrompt)
+        setTextPrompt("")
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [disconnect, isConnected, sendTextPrompt, textPrompt, toggle])
+
+  const handleMicToggle = () => {
+    playMicClick()
+    toggle()
+  }
+
+  const handleShare = async () => {
+    if (!captureRef.current) return
+    setIsSharing(true)
+    try {
+      const canvas = await html2canvas(captureRef.current, {
+        backgroundColor: "#020617",
+        useCORS: true,
+        scale: Math.min(window.devicePixelRatio, 2),
+      })
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png", 0.96))
+      if (!blob) return
+
+      const file = new File([blob], "avatar-voice-share.png", { type: "image/png" })
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: "Avatar Voice Demo",
+          text: transcript.at(-1)?.content || "Live avatar voice conversation",
+          files: [file],
+        })
+      } else {
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = "avatar-voice-share.png"
+        link.click()
+        URL.revokeObjectURL(url)
+      }
+    } finally {
+      setIsSharing(false)
+    }
+  }
+
   return (
     <div className="grid min-h-[68vh] gap-4 lg:grid-cols-[1.25fr_1fr]">
-      <Card className="border-zinc-800 bg-zinc-950/60">
+      <Card className="border-zinc-800 bg-zinc-950/70 shadow-[0_0_0_1px_rgba(34,211,238,0.1),0_16px_40px_rgba(8,47,73,0.3)]">
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center justify-between">
-            Conversation
-            <span className="flex items-center gap-2 text-sm text-zinc-400">
+          <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-2">Conversation <Sparkles className="h-4 w-4 text-cyan-300" /></span>
+            <div className="flex items-center gap-2 text-sm text-zinc-400">
               <span className={`h-2 w-2 rounded-full ${isConnected ? "bg-emerald-400" : connectionState === "connecting" ? "bg-amber-400" : "bg-zinc-500"}`} />
               {statusText}
-            </span>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="relative flex min-h-[360px] items-center justify-center overflow-hidden rounded-3xl border border-zinc-800 bg-transparent">
-            <VRMAvatarCanvas avatarUrl={avatarUrl} vibe={aiVibe} mode={avatarMode} audioLevel={aiAudioLevel} className="h-[380px] w-full" onLoadStateChange={setAvatarLoading} />
-            {avatarLoading ? (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm">
-                <div className="flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/90 px-4 py-2 text-sm text-zinc-300">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading avatar
+          <div ref={captureRef} className="space-y-3 rounded-2xl border border-cyan-500/20 bg-zinc-950/80 p-2">
+            <div className="relative flex min-h-[290px] items-center justify-center overflow-hidden rounded-2xl border border-zinc-800 bg-transparent sm:min-h-[360px]">
+              <VRMAvatarCanvas avatarUrl={avatarUrl} vibe={aiVibe} mode={avatarMode} audioLevel={aiAudioLevel} customization={customization} className="h-[320px] w-full sm:h-[380px]" onLoadStateChange={setAvatarLoading} />
+              {avatarLoading ? (
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm">
+                  <div className="flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/90 px-4 py-2 text-sm text-zinc-300">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading avatar
+                  </div>
                 </div>
+              ) : null}
+              {avatarMode === "speaking" ? <AudioRings level={Math.max(aiAudioLevel, 0.12)} /> : null}
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                <MemoryStick className="h-3.5 w-3.5" /> Conversation memory
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="border-emerald-400/40 bg-emerald-500/10 text-emerald-300">Memory active</Badge>
+                <Badge className="border-cyan-500/40 bg-cyan-500/10 text-cyan-200">
+                  Remembers {rememberedMessages}/{memoryWindow} recent messages
+                </Badge>
+              </div>
+            </div>
+
+            {transcript.length > 0 ? (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-200">
+                <div className="mb-1 text-xs uppercase tracking-wide text-zinc-500">Last message snapshot</div>
+                <div className="line-clamp-3">{transcript.at(-1)?.content}</div>
               </div>
             ) : null}
-            {avatarMode === "speaking" ? <AudioRings level={Math.max(aiAudioLevel, 0.12)} /> : null}
           </div>
 
-          <div className="flex gap-2">
-            <Button onClick={toggle} variant={isConnected ? "secondary" : "default"} className="h-12 flex-1 text-base">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+              <div className="mb-1 flex items-center gap-2 text-xs text-zinc-400"><Volume2 className="h-3.5 w-3.5" /> Speech rate: {speechRate.toFixed(2)}x</div>
+              <Input type="range" min={0.7} max={1.35} step={0.01} value={speechRate} onChange={(e) => setSpeechRate(Number(e.target.value))} className="accent-cyan-400" />
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+              <div className="mb-1 text-xs text-zinc-400">Pitch: {speechPitch > 0 ? `+${speechPitch}` : speechPitch} cents</div>
+              <Input type="range" min={-600} max={600} step={10} value={speechPitch} onChange={(e) => setSpeechPitch(Number(e.target.value))} className="accent-cyan-400" />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+            <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">Avatar customizer</div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <div className="mb-1 text-xs text-zinc-400">Skin tone</div>
+                <Input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={customization.skinTone}
+                  onChange={(e) => setCustomization((prev) => ({ ...prev, skinTone: Number(e.target.value) }))}
+                  className="accent-cyan-400"
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-zinc-400">Hair color</div>
+                <Input
+                  type="color"
+                  value={customization.hairColor}
+                  onChange={(e) => setCustomization((prev) => ({ ...prev, hairColor: e.target.value }))}
+                  className="h-10 w-full cursor-pointer rounded-md border-zinc-700 bg-zinc-900 p-1"
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-zinc-400">Outfit color</div>
+                <Input
+                  type="color"
+                  value={customization.outfitColor}
+                  onChange={(e) => setCustomization((prev) => ({ ...prev, outfitColor: e.target.value }))}
+                  className="h-10 w-full cursor-pointer rounded-md border-zinc-700 bg-zinc-900 p-1"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleMicToggle} variant={isConnected ? "secondary" : "default"} className="h-12 flex-1 min-w-[180px] text-base transition-all duration-200 hover:scale-[1.01]">
               {isConnected ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
               {isConnected ? "Stop Live" : "Start Live"}
             </Button>
-            <Button variant="outline" onClick={clearTranscript}>
-              Clear
+            <Button variant="outline" onClick={handleShare} disabled={isSharing}>
+              {isSharing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+              Share
             </Button>
+            <Button variant="outline" onClick={handleShare} disabled={isSharing} className="sm:hidden">
+              <Camera className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={clearTranscript}>Clear</Button>
           </div>
 
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
             <VibeDisplay vibe={aiVibe} />
           </div>
 
-          <EmotionAnalysis prosody={userProsody} aiProsody={aiProsody} size={220} />
+          <EmotionAnalysis prosody={userProsody} aiProsody={aiProsody} />
 
           <div className="flex gap-2">
-            <Input value={textPrompt} onChange={(e) => setTextPrompt(e.target.value)} placeholder="Send text during live conversation" disabled={!isConnected} />
+            <Input value={textPrompt} onChange={(e) => setTextPrompt(e.target.value)} placeholder="Send text during live conversation (Enter to send)" disabled={!isConnected} />
             <Button
               onClick={() => {
                 sendTextPrompt(textPrompt)
@@ -114,6 +328,8 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
               <Send className="h-4 w-4" />
             </Button>
           </div>
+
+          <p className="text-xs text-zinc-500">Shortcuts: <kbd className="rounded border border-zinc-700 px-1">Space</kbd> mic toggle · <kbd className="rounded border border-zinc-700 px-1">Esc</kbd> stop · <kbd className="rounded border border-zinc-700 px-1">Enter</kbd> send</p>
         </CardContent>
       </Card>
 

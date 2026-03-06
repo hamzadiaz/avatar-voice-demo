@@ -1,19 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --background: #05070c;
+  --background: #04060b;
   --foreground: #f4f4f5;
 }
 
 body {
   background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(8, 145, 178, 0.2), transparent),
-    radial-gradient(900px 500px at 100% 20%, rgba(244, 114, 182, 0.14), transparent),
-    radial-gradient(1400px 700px at 40% 120%, rgba(14, 116, 144, 0.2), transparent),
-    var(--background);
+    radial-gradient(1200px 600px at 15% -10%, rgba(8, 145, 178, 0.18), transparent),
+    radial-gradient(900px 500px at 100% 20%, rgba(244, 114, 182, 0.12), transparent),
+    radial-gradient(1400px 700px at 40% 120%, rgba(14, 116, 144, 0.18), transparent),
+    linear-gradient(180deg, #05070d 0%, #020308 100%);
   color: var(--foreground);
   font-family: "Sora", "Avenir Next", "Segoe UI", sans-serif;
   min-height: 100vh;
+  letter-spacing: 0.01em;
 }
 
 code,
