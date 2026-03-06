@@ -64,7 +64,7 @@ export default function Home() {
         <Card>
           <CardHeader><CardTitle>4) Full-Screen Live Conversation</CardTitle></CardHeader>
           <CardContent>
-            <LiveConversationPanel voice={voice} />
+            <LiveConversationPanel voice={voice} gender={gender} />
           </CardContent>
         </Card>
       </div>
