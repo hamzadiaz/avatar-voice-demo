@@ -25,6 +25,8 @@ interface UseGeminiLiveOptions {
   voiceName: string
   systemInstruction?: string
   languageCode?: string
+  speechRate?: number
+  speechPitch?: number
 }
 
 const GEMINI_INPUT_SAMPLE_RATE = 16000
@@ -35,6 +37,8 @@ export function useGeminiLive({
   voiceName,
   systemInstruction = "",
   languageCode = "en-US",
+  speechRate = 1,
+  speechPitch = 0,
 }: UseGeminiLiveOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle")
   const [userAudioLevel, setUserAudioLevel] = useState(0)
@@ -92,11 +96,15 @@ export function useGeminiLive({
           buffer.copyToChannel(audioData, 0)
           const source = audioContext.createBufferSource()
           source.buffer = buffer
+          source.playbackRate.value = speechRate
+          source.detune.value = speechPitch
+
           const gainNode = audioContext.createGain()
           gainNode.gain.value = 1
           source.connect(gainNode)
           gainNode.connect(audioContext.destination)
           if (analyser) gainNode.connect(analyser)
+
           currentAudioSourceRef.current = source
           source.onended = () => {
             if (currentAudioSourceRef.current === source) currentAudioSourceRef.current = null
@@ -105,7 +113,7 @@ export function useGeminiLive({
           source.start(0)
         })
     )
-  }, [])
+  }, [speechPitch, speechRate])
 
   const clearPlayback = useCallback(() => {
     stopCurrentAudio()
@@ -376,24 +384,27 @@ export function useGeminiLive({
     }
   }, [connect, connectionState, disconnect])
 
-  const sendTextPrompt = useCallback((text: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !text.trim()) return
-    addTranscript("user", text)
+  const sendTextPrompt = useCallback(
+    (text: string) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !text.trim()) return
+      addTranscript("user", text)
 
-    wsRef.current.send(
-      JSON.stringify({
-        clientContent: {
-          turns: [
-            {
-              role: "user",
-              parts: [{ text }],
-            },
-          ],
-          turnComplete: true,
-        },
-      })
-    )
-  }, [addTranscript])
+      wsRef.current.send(
+        JSON.stringify({
+          clientContent: {
+            turns: [
+              {
+                role: "user",
+                parts: [{ text }],
+              },
+            ],
+            turnComplete: true,
+          },
+        })
+      )
+    },
+    [addTranscript]
+  )
 
   const clearTranscript = useCallback(() => {
     setTranscript([])
@@ -412,6 +423,7 @@ export function useGeminiLive({
     aiVibe,
     transcript,
     toggle,
+    disconnect,
     clearTranscript,
     sendTextPrompt,
   }

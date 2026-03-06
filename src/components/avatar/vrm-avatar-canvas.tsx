@@ -11,11 +11,18 @@ import type { VibeType } from "@/lib/constants"
 
 export type AvatarMode = "idle" | "listening" | "speaking"
 
+export interface AvatarCustomization {
+  skinTone: number
+  hairColor: string
+  outfitColor: string
+}
+
 interface VRMAvatarCanvasProps {
   avatarUrl: string
   vibe: VibeType
   mode: AvatarMode
   audioLevel: number
+  customization?: AvatarCustomization
   className?: string
   onLoadStateChange?: (loading: boolean) => void
 }
@@ -36,9 +43,28 @@ const VIBE_TO_EMOTION: Record<VibeType, EmotionShape> = {
   Empathetic: { happy: 0.25, sad: 0.25, relaxed: 0.45, surprised: 0 },
 }
 
-function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, onLoadStateChange }: Omit<VRMAvatarCanvasProps, "className">) {
+const defaultCustomization: AvatarCustomization = {
+  skinTone: 0.5,
+  hairColor: "#2d2d35",
+  outfitColor: "#5eead4",
+}
+
+function tweakSkin(base: THREE.Color, amount: number) {
+  const target = new THREE.Color().setHSL(0.08, 0.33, 0.35 + amount * 0.4)
+  return base.clone().lerp(target, 0.8)
+}
+
+function setMaterialColor(material: THREE.Material, color: THREE.Color) {
+  if (material instanceof THREE.MeshStandardMaterial || material instanceof THREE.MeshPhysicalMaterial) {
+    material.color.copy(color)
+    material.needsUpdate = true
+  }
+}
+
+function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, customization = defaultCustomization, onLoadStateChange }: Omit<VRMAvatarCanvasProps, "className">) {
   const [vrm, setVrm] = useState<VRM | null>(null)
   const t = useRef(0)
+  const originalColorsRef = useRef<Map<string, THREE.Color>>(new Map())
 
   const happySpring = useSpring(0, { stiffness: 120, damping: 20 })
   const sadSpring = useSpring(0, { stiffness: 120, damping: 20 })
@@ -65,6 +91,11 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, onLoadStateChange }: Omi
 
         loaded.scene.traverse((obj) => {
           obj.frustumCulled = false
+          const mesh = obj as THREE.Mesh
+          const mat = mesh.material
+          if (mat instanceof THREE.MeshStandardMaterial || mat instanceof THREE.MeshPhysicalMaterial) {
+            originalColorsRef.current.set(mesh.uuid, mat.color.clone())
+          }
         })
 
         loaded.scene.rotation.y = Math.PI
@@ -89,8 +120,35 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, onLoadStateChange }: Omi
         })
         return null
       })
+      originalColorsRef.current.clear()
     }
   }, [avatarUrl, onLoadStateChange])
+
+  useEffect(() => {
+    if (!vrm) return
+
+    const hairColor = new THREE.Color(customization.hairColor)
+    const outfitColor = new THREE.Color(customization.outfitColor)
+
+    vrm.scene.traverse((obj) => {
+      const mesh = obj as THREE.Mesh
+      if (!mesh.material) return
+
+      const meshName = mesh.name.toLowerCase()
+      const isSkin = meshName.includes("face") || meshName.includes("skin") || meshName.includes("body") || meshName.includes("head")
+      const isHair = meshName.includes("hair") || meshName.includes("bang")
+      const isOutfit = meshName.includes("shirt") || meshName.includes("cloth") || meshName.includes("outfit") || meshName.includes("jacket") || meshName.includes("dress")
+
+      const original = originalColorsRef.current.get(mesh.uuid) ?? new THREE.Color("#808080")
+      const target = isSkin ? tweakSkin(original, customization.skinTone) : isHair ? hairColor : isOutfit ? outfitColor : original
+
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach((m) => setMaterialColor(m, target))
+      } else {
+        setMaterialColor(mesh.material, target)
+      }
+    })
+  }, [customization, vrm])
 
   const emotion = useMemo(() => VIBE_TO_EMOTION[vibe], [vibe])
 
@@ -102,10 +160,7 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, onLoadStateChange }: Omi
   }, [emotion, happySpring, relaxedSpring, sadSpring, surprisedSpring])
 
   useEffect(() => {
-    const mouthTarget =
-      mode === "speaking"
-        ? THREE.MathUtils.clamp(0.08 + audioLevel * 1.8, 0.08, 1)
-        : 0
+    const mouthTarget = mode === "speaking" ? THREE.MathUtils.clamp(0.08 + audioLevel * 1.8, 0.08, 1) : 0
     mouthSpring.set(mouthTarget)
   }, [audioLevel, mode, mouthSpring])
 
@@ -155,26 +210,11 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, onLoadStateChange }: Omi
         const empatheticOpen = vibe === "Empathetic" ? 0.22 : 0
         const seriousFold = vibe === "Serious" ? 0.18 : 0
 
-        leftUpperArm.rotation.z = THREE.MathUtils.damp(
-          leftUpperArm.rotation.z,
-          -0.08 - empatheticOpen + seriousFold,
-          5,
-          delta
-        )
-        rightUpperArm.rotation.z = THREE.MathUtils.damp(
-          rightUpperArm.rotation.z,
-          0.08 + empatheticOpen - seriousFold,
-          5,
-          delta
-        )
+        leftUpperArm.rotation.z = THREE.MathUtils.damp(leftUpperArm.rotation.z, -0.08 - empatheticOpen + seriousFold, 5, delta)
+        rightUpperArm.rotation.z = THREE.MathUtils.damp(rightUpperArm.rotation.z, 0.08 + empatheticOpen - seriousFold, 5, delta)
 
         leftUpperArm.rotation.x = THREE.MathUtils.damp(leftUpperArm.rotation.x, excitedLift * 0.6, 5, delta)
-        rightUpperArm.rotation.x = THREE.MathUtils.damp(
-          rightUpperArm.rotation.x,
-          joyfulWave + excitedLift,
-          6,
-          delta
-        )
+        rightUpperArm.rotation.x = THREE.MathUtils.damp(rightUpperArm.rotation.x, joyfulWave + excitedLift, 6, delta)
       }
 
       if (spine) {
@@ -188,7 +228,7 @@ function LoadedVRM({ avatarUrl, vibe, mode, audioLevel, onLoadStateChange }: Omi
   return <primitive object={vrm.scene} />
 }
 
-export function VRMAvatarCanvas({ avatarUrl, vibe, mode, audioLevel, className, onLoadStateChange }: VRMAvatarCanvasProps) {
+export function VRMAvatarCanvas({ avatarUrl, vibe, mode, audioLevel, customization, className, onLoadStateChange }: VRMAvatarCanvasProps) {
   return (
     <div className={className}>
       <Canvas dpr={[1, 2]} gl={{ antialias: true, alpha: true }} camera={{ fov: 26, position: [0, 1.2, 2.2], near: 0.1, far: 100 }}>
@@ -197,7 +237,7 @@ export function VRMAvatarCanvas({ avatarUrl, vibe, mode, audioLevel, className, 
         <pointLight intensity={0.25} position={[-2, 2.2, 1]} />
 
         <Suspense fallback={null}>
-          <LoadedVRM avatarUrl={avatarUrl} vibe={vibe} mode={mode} audioLevel={audioLevel} onLoadStateChange={onLoadStateChange} />
+          <LoadedVRM avatarUrl={avatarUrl} vibe={vibe} mode={mode} audioLevel={audioLevel} customization={customization} onLoadStateChange={onLoadStateChange} />
           <Environment preset="city" />
         </Suspense>
       </Canvas>
