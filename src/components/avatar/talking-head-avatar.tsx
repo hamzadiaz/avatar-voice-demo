@@ -89,7 +89,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
 
               // 3) Ensure HeadAudio connected for lip-sync detection
               if (!headAudioReadyRef.current) {
-                await connectHeadAudio(head)
+                connectLipSync(head)
               }
 
               // 4) Flush all queued audio chunks in order
@@ -175,71 +175,85 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       [isReady]
     )
 
-    // Connect HeadAudio worklet for audio-driven lip-sync
-    const connectHeadAudio = async (head: TalkingHeadInstance) => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let HeadAudioNode = (window as any).HeadAudioNode
-        if (!HeadAudioNode) {
-          await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error("HeadAudio timeout")), 10000)
-            window.addEventListener("headaudio-ready", () => { clearTimeout(timeout); resolve() }, { once: true })
-          })
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          HeadAudioNode = (window as any).HeadAudioNode
+    // Simple FFT-based lip-sync: analyzes audio frequencies to drive visemes
+    // Much more reliable than HeadAudio worklet which fails in React component lifecycle
+    const connectLipSync = (head: TalkingHeadInstance) => {
+      const audioCtx = head.audioCtx
+      if (!audioCtx) { console.error("[LipSync] No AudioContext"); return }
+
+      // Create analyser connected to the audio output path
+      const analyser = audioCtx.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.5
+      analyser.minDecibels = -70
+      analyser.maxDecibels = -10
+
+      // Connect to reverbNode (final mix before destination — catches both speech + stream)
+      const source = head.audioReverbNode || head.audioStreamGainNode
+      if (!source) { console.error("[LipSync] No audio source node"); return }
+      source.connect(analyser)
+
+      const freqData = new Uint8Array(analyser.frequencyBinCount)
+      const smoothed: Record<string, number> = {}
+      const SMOOTH = 0.35
+
+      // Map frequency bands to Oculus visemes (simplified but effective)
+      // Low freqs → jaw open (aa/O), mid freqs → lip shapes (E/I/U), high freqs → consonants (SS/FF/kk)
+      const driveVisemes = () => {
+        if (!head.mtAvatar) return
+
+        analyser.getByteFrequencyData(freqData)
+
+        // Compute energy in frequency bands (0-255 range)
+        const binHz = (audioCtx.sampleRate / 2) / analyser.frequencyBinCount
+        let low = 0, mid = 0, high = 0, count_l = 0, count_m = 0, count_h = 0
+        for (let i = 0; i < freqData.length; i++) {
+          const hz = i * binHz
+          if (hz < 500) { low += freqData[i]; count_l++ }
+          else if (hz < 2000) { mid += freqData[i]; count_m++ }
+          else if (hz < 6000) { high += freqData[i]; count_h++ }
         }
-        if (!HeadAudioNode) { console.error("[HeadAudio] Module not loaded"); return }
+        low = count_l ? (low / count_l / 255) : 0
+        mid = count_m ? (mid / count_m / 255) : 0
+        high = count_h ? (high / count_h / 255) : 0
 
-        // TalkingHead exposes its AudioContext and speech gain node
-        const audioCtx = head.audioCtx
-        if (!audioCtx) { console.error("[HeadAudio] No AudioContext on TalkingHead"); return }
+        // Total energy for speech detection gate
+        const energy = (low + mid + high) / 3
+        const gate = energy > 0.08 ? 1 : 0
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const workletUrl = (window as any).__headAudioWorkletUrl
-        await audioCtx.audioWorklet.addModule(workletUrl)
-
-        const headAudio = new HeadAudioNode(audioCtx, {
-          parameterData: { vadGateActiveDb: -40, vadGateInactiveDb: -60 },
-        })
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const modelUrl = (window as any).__headAudioModelUrl
-        await headAudio.loadModel(modelUrl)
-
-        // Connect HeadAudio to audioReverbNode — this is the final mix node before destination
-        // Both speech (audioSpeechGainNode) and streaming (audioStreamGainNode) converge here
-        // Direct audioStreamGainNode connection doesn't reliably route to HeadAudio worklets
-        const sourceNode = head.audioReverbNode || head.audioStreamGainNode || head.audioSpeechGainNode
-        if (sourceNode) {
-          sourceNode.connect(headAudio)
-          console.log("[HeadAudio] Connected to:", head.audioReverbNode ? "audioReverbNode" : head.audioStreamGainNode ? "audioStreamGainNode" : "audioSpeechGainNode")
-        } else {
-          console.error("[HeadAudio] No audio node found to connect to")
-          return
+        // Drive visemes based on frequency bands
+        const visemeMap: Record<string, number> = {
+          viseme_aa: low * 0.9 * gate,           // jaw open — low freq vowels
+          viseme_O: low * 0.7 * gate,             // rounded open — low freq
+          viseme_E: mid * 0.8 * gate,             // mid spread
+          viseme_I: mid * 0.6 * gate,             // mid narrow
+          viseme_U: (low * 0.4 + mid * 0.3) * gate, // rounded close
+          viseme_PP: high * 0.5 * gate,           // bilabial — high freq burst
+          viseme_FF: high * 0.6 * gate,           // labiodental — high freq
+          viseme_SS: high * 0.7 * gate,           // sibilant — high freq
+          viseme_kk: high * 0.4 * gate,           // velar stop
+          viseme_CH: high * 0.5 * gate,           // affricate
+          viseme_DD: (mid * 0.3 + high * 0.2) * gate, // alveolar
+          viseme_nn: mid * 0.4 * gate,            // nasal
+          viseme_RR: (low * 0.3 + mid * 0.3) * gate,  // rhotic
+          viseme_TH: high * 0.3 * gate,           // dental
+          viseme_sil: gate > 0 ? 0 : 0.1,        // silence
         }
 
-        // Smooth viseme values to prevent jittery lip movement
-        const smoothedValues: Record<string, number> = {}
-        const SMOOTHING = 0.35 // 0 = no smoothing, 1 = frozen. 0.35 = natural human-like
-
-        headAudio.onvalue = (key: string, value: number) => {
-          if (!head.mtAvatar?.[key]) return
-          // Exponential smoothing: lerp between current and target
-          const prev = smoothedValues[key] ?? 0
-          const smoothed = prev + (value - prev) * (1 - SMOOTHING)
-          smoothedValues[key] = smoothed
-          Object.assign(head.mtAvatar[key], { newvalue: smoothed, needsUpdate: true })
+        for (const [key, target] of Object.entries(visemeMap)) {
+          if (!head.mtAvatar[key]) continue
+          const prev = smoothed[key] ?? 0
+          const val = prev + (target - prev) * (1 - SMOOTH)
+          smoothed[key] = val
+          Object.assign(head.mtAvatar[key], { newvalue: val, needsUpdate: true })
         }
-
-        // Link update to animation loop
-        head.opt.update = headAudio.update.bind(headAudio)
-
-        headAudioReadyRef.current = true
-        console.log("[HeadAudio] ✅ Connected — audio-driven lip-sync active")
-      } catch (err) {
-        headAudioReadyRef.current = false
-        console.error("[HeadAudio] Failed:", err)
       }
+
+      // Drive visemes on every animation frame via TalkingHead's update hook
+      head.opt.update = driveVisemes
+
+      headAudioReadyRef.current = true
+      console.log("[LipSync] ✅ FFT-based lip-sync connected to", head.audioReverbNode ? "audioReverbNode" : "audioStreamGainNode")
     }
 
     useEffect(() => {
