@@ -21,6 +21,20 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <script
+          type="importmap"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              imports: {
+                three: "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+                "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+              },
+            }),
+          }}
+        />
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   )
