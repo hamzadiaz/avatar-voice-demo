@@ -64,7 +64,8 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           if (!streamingRef.current) {
             try {
               // Use 'none' for lipsync since we drive visemes via HeadAudio worklet
-              headRef.current.streamStart({ lipsyncType: "none", pcmSampleRate: 24000 })
+              // Don't set pcmSampleRate — audio is already resampled to AudioContext rate
+              headRef.current.streamStart({ lipsyncType: "none" })
               streamingRef.current = true
               console.log("[TalkingHead] Stream started — audio playback active")
               

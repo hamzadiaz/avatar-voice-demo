@@ -104,11 +104,15 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     languageCode,
     speechRate,
     speechPitch,
-    onAiAudioChunk: (_chunk, _sampleRate, rawPcm16) => {
-      // Feed raw PCM16 to TalkingHead — it handles BOTH playback AND lip-sync
-      if (rawPcm16) {
-        talkingHeadRef.current?.pushAudioChunk(new Float32Array(0), 24000, rawPcm16)
+    onAiAudioChunk: (chunk, sampleRate) => {
+      // Convert resampled Float32 back to PCM16 for TalkingHead (it expects PCM16 LE)
+      // chunk is already resampled to AudioContext.sampleRate (typically 48kHz)
+      const int16 = new Int16Array(chunk.length)
+      for (let i = 0; i < chunk.length; i++) {
+        const s = Math.max(-1, Math.min(1, chunk[i]))
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
       }
+      talkingHeadRef.current?.pushAudioChunk(chunk, sampleRate, int16.buffer)
     },
     onAiAudioInterrupted: () => {
       talkingHeadRef.current?.interrupt()
