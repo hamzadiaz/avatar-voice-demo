@@ -27,7 +27,7 @@ interface UseGeminiLiveOptions {
   languageCode?: string
   speechRate?: number
   speechPitch?: number
-  onAiAudioChunk?: (chunk: Float32Array, sampleRate: number) => void
+  onAiAudioChunk?: (chunk: Float32Array, sampleRate: number, rawPcm16?: ArrayBuffer) => void
   onAiAudioInterrupted?: () => void
   onMoodChange?: (mood: string) => void
   onGesture?: (gesture: string) => void
@@ -345,7 +345,7 @@ export function useGeminiLive({
               if (!externalAudioPlayback) {
                 queueAudio(resampled)
               }
-              onAiAudioChunk?.(resampled, outputSampleRate)
+              onAiAudioChunk?.(resampled, outputSampleRate, pcmBuffer)
             }
           }
         }

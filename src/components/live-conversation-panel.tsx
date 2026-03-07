@@ -86,8 +86,6 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
   const captureRef = useRef<HTMLDivElement | null>(null)
   const talkingHeadRef = useRef<TalkingHeadAvatarHandle | null>(null)
 
-  const lipSyncConnectedRef = useRef(false)
-
   const {
     connectionState,
     toggle,
@@ -100,31 +98,20 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     clearTranscript,
     aiAudioLevel,
     userAudioLevel,
-    audioContextRef,
-    aiSpeechGainRef,
   } = useGeminiLive({
     voiceName: voice,
     systemInstruction: dynamicInstruction,
     languageCode,
     speechRate,
     speechPitch,
-    onAiAudioChunk: () => {
-      // Audio playback handled by hook's queueAudio.
-      // Connect HeadAudio for lip-sync on first chunk (gain node exists now)
-      if (!lipSyncConnectedRef.current && talkingHeadRef.current) {
-        const ctx = audioContextRef.current
-        const gain = aiSpeechGainRef.current
-        if (ctx && gain) {
-          lipSyncConnectedRef.current = true
-          talkingHeadRef.current.connectAudioForLipSync(ctx, gain).catch((err: unknown) => {
-            console.error("[LipSync] HeadAudio connection failed:", err)
-            lipSyncConnectedRef.current = false
-          })
-        }
+    onAiAudioChunk: (_chunk, _sampleRate, rawPcm16) => {
+      // Feed raw PCM16 to TalkingHead — it handles BOTH playback AND lip-sync
+      if (rawPcm16) {
+        talkingHeadRef.current?.pushAudioChunk(new Float32Array(0), 24000, rawPcm16)
       }
     },
     onAiAudioInterrupted: () => {
-      // HeadAudio follows the audio stream automatically
+      talkingHeadRef.current?.interrupt()
     },
     onMoodChange: (mood) => {
       talkingHeadRef.current?.setMood(mood)
@@ -142,7 +129,7 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
         talkingHeadRef.current?.lookAhead(3000)
       }
     },
-    externalAudioPlayback: false,
+    externalAudioPlayback: true, // TalkingHead handles audio playback + lip-sync
   })
 
   const isConnected = connectionState === "connected"
@@ -167,9 +154,11 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     if (isConnected) playConnectedChime()
   }, [isConnected])
 
-  // Reset lip-sync state on disconnect
+  // Stop TalkingHead streaming on disconnect
   useEffect(() => {
-    if (!isConnected) lipSyncConnectedRef.current = false
+    if (!isConnected) {
+      talkingHeadRef.current?.stopStreaming()
+    }
   }, [isConnected])
 
   useEffect(() => {
