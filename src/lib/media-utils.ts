@@ -103,7 +103,7 @@ export const TTS_MODELS = [
 
 export type TTSModelId = (typeof TTS_MODELS)[number]["id"]
 
-export const DEFAULT_TTS_MODEL: TTSModelId = "gemini-2.5-flash-lite-preview-tts"
+export const DEFAULT_TTS_MODEL: TTSModelId = "gemini-2.5-flash-preview-tts"
 export const DEFAULT_VOICE: GeminiVoiceName = "Kore"
 
 export const LIVE_MODEL =
