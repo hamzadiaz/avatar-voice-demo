@@ -11,7 +11,7 @@ import { EmotionAnalysis } from "@/components/emotion-analysis"
 import { TranscriptPanel } from "@/components/transcript-panel"
 import { VibeDisplay } from "@/components/vibe-display"
 import { type AvatarMode } from "@/components/avatar/vrm-avatar-canvas"
-import { SpriteAvatarCanvas } from "@/components/avatar/sprite-avatar-canvas"
+import { TalkingHeadAvatar, type TalkingHeadAvatarHandle } from "@/components/avatar/talking-head-avatar"
 import { EMOTIONAL_MIRRORING_INSTRUCTION } from "@/lib/constants"
 import { type GeminiVoiceName, type VoiceGender } from "@/lib/media-utils"
 import { useGeminiLive } from "@/hooks/use-gemini-live"
@@ -83,6 +83,7 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
 
   const dynamicInstruction = `${EMOTIONAL_MIRRORING_INSTRUCTION}\nEmotional mirroring intensity (0-100): ${Math.round(mirroring)}.`
   const captureRef = useRef<HTMLDivElement | null>(null)
+  const talkingHeadRef = useRef<TalkingHeadAvatarHandle | null>(null)
 
   const {
     connectionState,
@@ -102,6 +103,12 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     languageCode,
     speechRate,
     speechPitch,
+    onAiAudioChunk: (chunk, sampleRate) => {
+      talkingHeadRef.current?.pushAudioChunk(chunk, sampleRate)
+    },
+    onAiAudioInterrupted: () => {
+      talkingHeadRef.current?.interrupt()
+    },
   })
 
   const isConnected = connectionState === "connected"
@@ -211,7 +218,14 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
         <CardContent className="space-y-4">
           <div ref={captureRef} className="space-y-3 rounded-2xl border border-cyan-500/20 bg-zinc-950/80 p-2">
             <div className="relative flex min-h-[290px] items-center justify-center overflow-hidden rounded-2xl border border-zinc-800 bg-transparent sm:min-h-[360px]">
-              <SpriteAvatarCanvas gender={gender} vibe={aiVibe} mode={avatarMode} audioLevel={aiAudioLevel} className="h-[320px] w-full sm:h-[380px]" />
+              <TalkingHeadAvatar
+                ref={talkingHeadRef}
+                gender={gender}
+                vibe={aiVibe}
+                mode={avatarMode}
+                audioLevel={aiAudioLevel}
+                className="h-[320px] w-full sm:h-[380px]"
+              />
               {avatarMode === "speaking" ? <AudioRings level={Math.max(aiAudioLevel, 0.12)} /> : null}
             </div>
 
@@ -248,7 +262,7 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
 
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
             <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">Avatar renderer</div>
-            <p className="text-xs text-zinc-400">Realistic portrait mode is enabled by default. The 3D VRM renderer is temporarily hidden while motion quality improvements are in progress.</p>
+            <p className="text-xs text-zinc-400">TalkingHead 3D avatar is active with live lip-sync, idle eye contact, and mood-driven expressions.</p>
           </div>
 
           <div className="flex flex-wrap gap-2">

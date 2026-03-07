@@ -27,6 +27,8 @@ interface UseGeminiLiveOptions {
   languageCode?: string
   speechRate?: number
   speechPitch?: number
+  onAiAudioChunk?: (chunk: Float32Array, sampleRate: number) => void
+  onAiAudioInterrupted?: () => void
 }
 
 const GEMINI_INPUT_SAMPLE_RATE = 16000
@@ -39,6 +41,8 @@ export function useGeminiLive({
   languageCode = "en-US",
   speechRate = 1,
   speechPitch = 0,
+  onAiAudioChunk,
+  onAiAudioInterrupted,
 }: UseGeminiLiveOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle")
   const [userAudioLevel, setUserAudioLevel] = useState(0)
@@ -272,6 +276,7 @@ export function useGeminiLive({
 
         if (data.serverContent?.interrupted) {
           clearPlayback()
+          onAiAudioInterrupted?.()
           if (currentAiTextRef.current.trim()) {
             addTranscript("assistant", currentAiTextRef.current)
             currentAiTextRef.current = ""
@@ -292,6 +297,7 @@ export function useGeminiLive({
               const outputSampleRate = audioContextRef.current?.sampleRate || 48000
               const resampled = resampleAudio(float32, GEMINI_OUTPUT_SAMPLE_RATE, outputSampleRate)
               queueAudio(resampled)
+              onAiAudioChunk?.(resampled, outputSampleRate)
             }
           }
         }
@@ -369,6 +375,8 @@ export function useGeminiLive({
     connectionState,
     disconnect,
     languageCode,
+    onAiAudioChunk,
+    onAiAudioInterrupted,
     parseVibeAndCleanText,
     queueAudio,
     systemInstruction,
