@@ -78,6 +78,8 @@ export function useGeminiLive({
   const animationFrameRef = useRef<number | null>(null)
   const playbackChainRef = useRef<Promise<void>>(Promise.resolve())
   const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null)
+  const aiIsSpeakingRef = useRef(false)
+  const micGainNodeRef = useRef<GainNode | null>(null)
   const currentUserTextRef = useRef("")
   const currentAiTextRef = useRef("")
 
@@ -226,6 +228,9 @@ export function useGeminiLive({
       audioContextRef.current = null
     }
 
+    micGainNodeRef.current = null
+    aiIsSpeakingRef.current = false
+
     setConnectionState("idle")
     setUserAudioLevel(0)
     setAiAudioLevel(0)
@@ -255,14 +260,27 @@ export function useGeminiLive({
       await audioContext.audioWorklet.addModule(workletUrl)
       URL.revokeObjectURL(workletUrl)
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
       mediaStreamRef.current = stream
 
       const source = audioContext.createMediaStreamSource(stream)
+
+      // Mic gain node — muted (0) when AI is speaking to prevent echo/feedback
+      const micGain = audioContext.createGain()
+      micGain.gain.value = 1
+      micGainNodeRef.current = micGain
+      source.connect(micGain)
+
       const userAnalyser = audioContext.createAnalyser()
       userAnalyser.fftSize = 256
       userAnalyserRef.current = userAnalyser
-      source.connect(userAnalyser)
+      micGain.connect(userAnalyser)
 
       const aiAnalyser = audioContext.createAnalyser()
       aiAnalyser.fftSize = 256
@@ -270,7 +288,7 @@ export function useGeminiLive({
 
       const workletNode = new AudioWorkletNode(audioContext, "pcm-processor")
       workletNodeRef.current = workletNode
-      source.connect(workletNode)
+      micGain.connect(workletNode)
 
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
@@ -322,6 +340,11 @@ export function useGeminiLive({
         }
 
         if (data.serverContent?.interrupted) {
+          // Unmute mic immediately on interruption
+          aiIsSpeakingRef.current = false
+          if (micGainNodeRef.current) {
+            micGainNodeRef.current.gain.setValueAtTime(1, micGainNodeRef.current.context.currentTime)
+          }
           clearPlayback()
           onAiAudioInterrupted?.()
           if (currentAiTextRef.current.trim()) {
@@ -339,6 +362,14 @@ export function useGeminiLive({
           for (const part of data.serverContent.modelTurn.parts as Array<{ inlineData?: { mimeType?: string; data?: string } }>) {
             const inlineData = part.inlineData
             if (inlineData?.mimeType?.startsWith("audio/pcm") && inlineData.data) {
+              // Mute mic while AI is speaking to prevent echo/feedback loop
+              if (!aiIsSpeakingRef.current) {
+                aiIsSpeakingRef.current = true
+                if (micGainNodeRef.current) {
+                  micGainNodeRef.current.gain.setValueAtTime(0, micGainNodeRef.current.context.currentTime)
+                }
+              }
+
               const pcmBuffer = base64ToArrayBuffer(inlineData.data)
               const float32 = pcm16ToFloat32(new Int16Array(pcmBuffer))
               const outputSampleRate = audioContextRef.current?.sampleRate || 48000
@@ -375,6 +406,14 @@ export function useGeminiLive({
         }
 
         if (data.serverContent?.turnComplete) {
+          // Unmute mic after AI finishes speaking (with small delay to avoid tail echo)
+          aiIsSpeakingRef.current = false
+          setTimeout(() => {
+            if (!aiIsSpeakingRef.current && micGainNodeRef.current) {
+              micGainNodeRef.current.gain.setValueAtTime(1, micGainNodeRef.current.context.currentTime)
+            }
+          }, 300)
+
           if (currentUserTextRef.current.trim()) {
             addTranscript("user", currentUserTextRef.current)
             currentUserTextRef.current = ""
