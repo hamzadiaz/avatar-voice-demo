@@ -175,9 +175,16 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         const modelUrl = (window as any).__headAudioModelUrl
         await headAudio.loadModel(modelUrl)
 
-        // Connect TalkingHead's speech gain → HeadAudio (analysis only)
-        if (head.audioSpeechGainNode) {
-          head.audioSpeechGainNode.connect(headAudio)
+        // Connect the streaming audio path → HeadAudio (analysis only)
+        // Streaming audio flows: playback-worklet → audioStreamGainNode + audioAnalyzerNode
+        // We tap into audioStreamGainNode (or audioAnalyzerNode as fallback)
+        const sourceNode = head.audioStreamGainNode || head.audioAnalyzerNode || head.audioSpeechGainNode
+        if (sourceNode) {
+          sourceNode.connect(headAudio)
+          console.log("[HeadAudio] Connected to:", head.audioStreamGainNode ? "audioStreamGainNode" : head.audioAnalyzerNode ? "audioAnalyzerNode" : "audioSpeechGainNode")
+        } else {
+          console.error("[HeadAudio] No audio node found to connect to")
+          return
         }
 
         // Drive TalkingHead's blend shapes from HeadAudio viseme detection
