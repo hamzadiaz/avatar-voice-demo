@@ -113,11 +113,21 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         setErrorMsg("")
 
         try {
-          const moduleUrl =
-            "https://cdn.jsdelivr.net/npm/@met4citizen/talkinghead@1.7.0/modules/talkinghead.mjs"
-          const mod = await import(/* webpackIgnore: true */ moduleUrl)
-          const TalkingHead = mod.TalkingHead || mod.default
-          if (!TalkingHead) throw new Error("TalkingHead class not found in module")
+          // Wait for TalkingHead to be loaded by the global loader script
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let TalkingHead = (window as any).TalkingHead
+          if (!TalkingHead) {
+            await new Promise<void>((resolve, reject) => {
+              const timeout = setTimeout(() => reject(new Error("TalkingHead load timeout (15s)")), 15000)
+              window.addEventListener("talkinghead-ready", () => {
+                clearTimeout(timeout)
+                resolve()
+              }, { once: true })
+            })
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            TalkingHead = (window as any).TalkingHead
+          }
+          if (!TalkingHead) throw new Error("TalkingHead class not found on window")
           if (cancelled || !containerRef.current) return
 
           const instance = new TalkingHead(containerRef.current, {
