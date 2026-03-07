@@ -206,13 +206,13 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         const modelUrl = (window as any).__headAudioModelUrl
         await headAudio.loadModel(modelUrl)
 
-        // Connect the streaming audio path → HeadAudio (analysis only)
-        // Streaming audio flows: playback-worklet → audioStreamGainNode + audioAnalyzerNode
-        // We tap into audioStreamGainNode (or audioAnalyzerNode as fallback)
-        const sourceNode = head.audioStreamGainNode || head.audioAnalyzerNode || head.audioSpeechGainNode
+        // Connect HeadAudio to audioReverbNode — this is the final mix node before destination
+        // Both speech (audioSpeechGainNode) and streaming (audioStreamGainNode) converge here
+        // Direct audioStreamGainNode connection doesn't reliably route to HeadAudio worklets
+        const sourceNode = head.audioReverbNode || head.audioStreamGainNode || head.audioSpeechGainNode
         if (sourceNode) {
           sourceNode.connect(headAudio)
-          console.log("[HeadAudio] Connected to:", head.audioStreamGainNode ? "audioStreamGainNode" : head.audioAnalyzerNode ? "audioAnalyzerNode" : "audioSpeechGainNode")
+          console.log("[HeadAudio] Connected to:", head.audioReverbNode ? "audioReverbNode" : head.audioStreamGainNode ? "audioStreamGainNode" : "audioSpeechGainNode")
         } else {
           console.error("[HeadAudio] No audio node found to connect to")
           return

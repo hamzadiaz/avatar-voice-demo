@@ -96,13 +96,14 @@ export const GEMINI_VOICES = [
 export type GeminiVoiceName = (typeof GEMINI_VOICES)[number]["name"]
 
 export const TTS_MODELS = [
-  { id: "gemini-2.5-pro-preview-tts", name: "Pro", description: "Highest quality" },
+  { id: "gemini-2.5-flash-lite-preview-tts", name: "Flash Lite", description: "Fastest response" },
   { id: "gemini-2.5-flash-preview-tts", name: "Flash", description: "Low latency" },
+  { id: "gemini-2.5-pro-preview-tts", name: "Pro", description: "Highest quality" },
 ] as const
 
 export type TTSModelId = (typeof TTS_MODELS)[number]["id"]
 
-export const DEFAULT_TTS_MODEL: TTSModelId = "gemini-2.5-pro-preview-tts"
+export const DEFAULT_TTS_MODEL: TTSModelId = "gemini-2.5-flash-lite-preview-tts"
 export const DEFAULT_VOICE: GeminiVoiceName = "Kore"
 
 export const LIVE_MODEL =
