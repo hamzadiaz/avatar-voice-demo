@@ -66,11 +66,11 @@ function playConnectedChime() {
 function AudioRings({ level }: { level: number }) {
   const bars = new Array(18).fill(0)
   return (
-    <div className="pointer-events-none absolute inset-x-6 bottom-6 z-10 flex items-end justify-center gap-1">
+    <div className="flex items-end justify-center gap-1 py-2">
       {bars.map((_, i) => {
         const phase = i * 0.35
-        const height = Math.max(8, Math.min(44, (Math.sin(Date.now() / 200 + phase) * 0.5 + 0.5) * level * 100 + 8))
-        return <div key={i} className="w-1.5 rounded-full bg-cyan-300/70" style={{ height }} />
+        const height = Math.max(4, Math.min(24, (Math.sin(Date.now() / 200 + phase) * 0.5 + 0.5) * level * 60 + 4))
+        return <div key={i} className="w-1 rounded-full bg-cyan-300/70" style={{ height }} />
       })}
     </div>
   )
@@ -309,8 +309,8 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
                 audioLevel={aiAudioLevel}
                 className="h-[320px] w-full sm:h-[380px]"
               />
-              {avatarMode === "speaking" ? <AudioRings level={Math.max(aiAudioLevel, 0.12)} /> : null}
             </div>
+              {avatarMode === "speaking" ? <AudioRings level={Math.max(aiAudioLevel, 0.12)} /> : null}
 
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">

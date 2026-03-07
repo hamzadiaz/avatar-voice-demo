@@ -81,14 +81,13 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
                 await ctx.resume()
               }
 
-              // 2) Ensure stream mode active — MUST await before HeadAudio or streamAudio
+              // 2) Ensure stream mode active
               if (!streamingRef.current) {
-                await head.streamStart({ lipsyncType: "none" })
+                head.streamStart({ lipsyncType: "none" })
                 streamingRef.current = true
-                console.log("[TalkingHead] streamStart complete, worklet ready")
               }
 
-              // 3) Connect HeadAudio ML lip-sync (after streamStart to avoid concurrent worklet loads)
+              // 3) Ensure HeadAudio connected for lip-sync detection
               if (!headAudioReadyRef.current) {
                 await connectHeadAudio(head)
               }
@@ -176,75 +175,70 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       [isReady]
     )
 
-    // Connect HeadAudio worklet for ML-based lip-sync (trained viseme model)
+    // Connect HeadAudio worklet for audio-driven lip-sync
     const connectHeadAudio = async (head: TalkingHeadInstance) => {
       try {
-        const audioCtx = head.audioCtx
-        if (!audioCtx) { console.error("[HeadAudio] No AudioContext"); return }
-
-        // Ensure AudioContext is running before loading worklet
-        if (audioCtx.state === "suspended") {
-          await audioCtx.resume()
-          console.log("[HeadAudio] AudioContext resumed:", audioCtx.state)
-        }
-
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let HeadAudioNode = (window as any).HeadAudioNode
         if (!HeadAudioNode) {
-          console.log("[HeadAudio] Waiting for module to load...")
           await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error("HeadAudio module load timeout (15s)")), 15000)
+            const timeout = setTimeout(() => reject(new Error("HeadAudio timeout")), 10000)
             window.addEventListener("headaudio-ready", () => { clearTimeout(timeout); resolve() }, { once: true })
           })
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           HeadAudioNode = (window as any).HeadAudioNode
         }
-        if (!HeadAudioNode) { console.error("[HeadAudio] Module not available after wait"); return }
+        if (!HeadAudioNode) { console.error("[HeadAudio] Module not loaded"); return }
+
+        // TalkingHead exposes its AudioContext and speech gain node
+        const audioCtx = head.audioCtx
+        if (!audioCtx) { console.error("[HeadAudio] No AudioContext on TalkingHead"); return }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const workletUrl = (window as any).__headAudioWorkletUrl
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const modelUrl = (window as any).__headAudioModelUrl
-        if (!workletUrl || !modelUrl) { console.error("[HeadAudio] Missing worklet/model URLs"); return }
-
-        console.log("[HeadAudio] Loading worklet...")
         await audioCtx.audioWorklet.addModule(workletUrl)
 
         const headAudio = new HeadAudioNode(audioCtx, {
           parameterData: { vadGateActiveDb: -40, vadGateInactiveDb: -60 },
         })
 
-        console.log("[HeadAudio] Loading ML model...")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const modelUrl = (window as any).__headAudioModelUrl
         await headAudio.loadModel(modelUrl)
 
-        // Connect HeadAudio to TalkingHead's audio output
+        // Connect HeadAudio to audioReverbNode — this is the final mix node before destination
+        // Both speech (audioSpeechGainNode) and streaming (audioStreamGainNode) converge here
+        // Direct audioStreamGainNode connection doesn't reliably route to HeadAudio worklets
         const sourceNode = head.audioReverbNode || head.audioStreamGainNode || head.audioSpeechGainNode
-        if (!sourceNode) { console.error("[HeadAudio] No audio source node found"); return }
-        sourceNode.connect(headAudio)
-        const nodeName = head.audioReverbNode ? "audioReverbNode" : head.audioStreamGainNode ? "audioStreamGainNode" : "audioSpeechGainNode"
-        console.log("[HeadAudio] Connected to:", nodeName)
+        if (sourceNode) {
+          sourceNode.connect(headAudio)
+          console.log("[HeadAudio] Connected to:", head.audioReverbNode ? "audioReverbNode" : head.audioStreamGainNode ? "audioStreamGainNode" : "audioSpeechGainNode")
+        } else {
+          console.error("[HeadAudio] No audio node found to connect to")
+          return
+        }
 
-        // Smooth viseme values for natural lip movement
+        // Smooth viseme values to prevent jittery lip movement
         const smoothedValues: Record<string, number> = {}
-        const SMOOTHING = 0.35
+        const SMOOTHING = 0.35 // 0 = no smoothing, 1 = frozen. 0.35 = natural human-like
 
         headAudio.onvalue = (key: string, value: number) => {
           if (!head.mtAvatar?.[key]) return
+          // Exponential smoothing: lerp between current and target
           const prev = smoothedValues[key] ?? 0
           const smoothed = prev + (value - prev) * (1 - SMOOTHING)
           smoothedValues[key] = smoothed
           Object.assign(head.mtAvatar[key], { newvalue: smoothed, needsUpdate: true })
         }
 
-        // Link HeadAudio update to TalkingHead's animation loop
+        // Link update to animation loop
         head.opt.update = headAudio.update.bind(headAudio)
 
         headAudioReadyRef.current = true
-        console.log("[HeadAudio] ✅ ML lip-sync active")
+        console.log("[HeadAudio] ✅ Connected — audio-driven lip-sync active")
       } catch (err) {
         headAudioReadyRef.current = false
-        console.error("[HeadAudio] ❌ Failed:", err)
-        // Don't throw — audio will still play, just without lip-sync
+        console.error("[HeadAudio] Failed:", err)
       }
     }
 
