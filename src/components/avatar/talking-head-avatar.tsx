@@ -63,15 +63,19 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           // Start streaming mode on first chunk if not already streaming
           if (!streamingRef.current) {
             try {
+              // Use 'none' for lipsync since we drive visemes via HeadAudio worklet
               headRef.current.streamStart({ lipsyncType: "none" })
               streamingRef.current = true
-              console.log("[TalkingHead] Stream started for lip-sync")
+              console.log("[TalkingHead] Stream started — audio playback active")
+              
+              // Connect HeadAudio for viseme-driven lip-sync from the audio
+              connectHeadAudio(headRef.current)
             } catch (e) {
               console.error("[TalkingHead] streamStart failed:", e)
               return
             }
           }
-          // Feed raw PCM16 LE audio to TalkingHead — it plays + does lip-sync
+          // Feed raw PCM16 LE audio — TalkingHead plays it, HeadAudio analyzes it for lip-sync
           try {
             headRef.current.streamAudio({ audio: rawPcm16 })
           } catch (e) {
@@ -139,6 +143,58 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       }),
       [isReady]
     )
+
+    // Connect HeadAudio worklet for audio-driven lip-sync
+    const connectHeadAudio = async (head: TalkingHeadInstance) => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let HeadAudioNode = (window as any).HeadAudioNode
+        if (!HeadAudioNode) {
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error("HeadAudio timeout")), 10000)
+            window.addEventListener("headaudio-ready", () => { clearTimeout(timeout); resolve() }, { once: true })
+          })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          HeadAudioNode = (window as any).HeadAudioNode
+        }
+        if (!HeadAudioNode) { console.error("[HeadAudio] Module not loaded"); return }
+
+        // TalkingHead exposes its AudioContext and speech gain node
+        const audioCtx = head.audioCtx
+        if (!audioCtx) { console.error("[HeadAudio] No AudioContext on TalkingHead"); return }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const workletUrl = (window as any).__headAudioWorkletUrl
+        await audioCtx.audioWorklet.addModule(workletUrl)
+
+        const headAudio = new HeadAudioNode(audioCtx, {
+          parameterData: { vadGateActiveDb: -40, vadGateInactiveDb: -60 },
+        })
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const modelUrl = (window as any).__headAudioModelUrl
+        await headAudio.loadModel(modelUrl)
+
+        // Connect TalkingHead's speech gain → HeadAudio (analysis only)
+        if (head.audioSpeechGainNode) {
+          head.audioSpeechGainNode.connect(headAudio)
+        }
+
+        // Drive TalkingHead's blend shapes from HeadAudio viseme detection
+        headAudio.onvalue = (key: string, value: number) => {
+          if (head.mtAvatar?.[key]) {
+            Object.assign(head.mtAvatar[key], { newvalue: value, needsUpdate: true })
+          }
+        }
+
+        // Link update to animation loop
+        head.opt.update = headAudio.update.bind(headAudio)
+
+        console.log("[HeadAudio] ✅ Connected — audio-driven lip-sync active")
+      } catch (err) {
+        console.error("[HeadAudio] Failed:", err)
+      }
+    }
 
     useEffect(() => {
       let cancelled = false
