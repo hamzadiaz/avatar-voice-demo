@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import {
   TalkingHeadAvatar,
   type TalkingHeadAvatarHandle,
@@ -39,6 +39,39 @@ const VIEWS = [
 
 const EMOJIS = ["😊", "😂", "😍", "😢", "😡", "😱", "🤔", "😴", "😎", "🥳", "😘", "🤗"]
 
+const GEMINI_PCM_RATE = 24000
+
+function pcm16ToFloat32(pcm: Int16Array): Float32Array {
+  const f = new Float32Array(pcm.length)
+  for (let i = 0; i < pcm.length; i++) {
+    f[i] = pcm[i] / (pcm[i] < 0 ? 0x8000 : 0x7fff)
+  }
+  return f
+}
+
+function resampleAudio(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (fromRate === toRate) return input
+  const ratio = fromRate / toRate
+  const len = Math.round(input.length / ratio)
+  const out = new Float32Array(len)
+  for (let i = 0; i < len; i++) {
+    const srcIdx = i * ratio
+    const idx = Math.floor(srcIdx)
+    const frac = srcIdx - idx
+    out[i] = (input[idx] ?? 0) * (1 - frac) + (input[idx + 1] ?? 0) * frac
+  }
+  return out
+}
+
+function float32ToPcm16(f32: Float32Array): Int16Array {
+  const pcm = new Int16Array(f32.length)
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]))
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+  }
+  return pcm
+}
+
 export default function TestAvatarPage() {
   const avatarRef = useRef<TalkingHeadAvatarHandle>(null)
   const [gender, setGender] = useState<"female" | "male">("female")
@@ -49,11 +82,74 @@ export default function TestAvatarPage() {
   const [audioLevel, setAudioLevel] = useState(0)
   const [speakText, setSpeakText] = useState("Hello! I am your AI avatar. Nice to meet you!")
   const [lastAction, setLastAction] = useState("Ready")
+  const [isSpeaking, setIsSpeaking] = useState(false)
 
   const doAction = (label: string, fn: () => void) => {
     fn()
     setLastAction(label)
   }
+
+  const handleSpeak = useCallback(async () => {
+    if (!speakText.trim() || isSpeaking) return
+    setIsSpeaking(true)
+    setLastAction("Speaking...")
+
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: speakText,
+          voiceName: gender === "female" ? "Kore" : "Puck",
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.text()
+        setLastAction(`TTS Error: ${err.substring(0, 50)}`)
+        return
+      }
+
+      const data = await res.json()
+      if (!data.audioBase64) {
+        setLastAction("No audio returned")
+        return
+      }
+
+      // Decode base64 to PCM16 buffer
+      const binaryStr = atob(data.audioBase64)
+      const bytes = new Uint8Array(binaryStr.length)
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i)
+      }
+
+      // Gemini returns 24kHz PCM16 LE
+      const pcm16 = new Int16Array(bytes.buffer)
+      const float32 = pcm16ToFloat32(pcm16)
+
+      // Resample to 48kHz (TalkingHead AudioContext rate)
+      const resampled = resampleAudio(float32, GEMINI_PCM_RATE, 48000)
+      const resampledPcm = float32ToPcm16(resampled)
+
+      // Feed to avatar for playback + lip-sync
+      // Split into chunks (100ms each at 48kHz = 4800 samples)
+      const chunkSize = 4800
+      for (let i = 0; i < resampledPcm.length; i += chunkSize) {
+        const chunk = resampledPcm.slice(i, i + chunkSize)
+        avatarRef.current?.pushAudioChunk(
+          new Float32Array(0),
+          48000,
+          chunk.buffer
+        )
+      }
+
+      setLastAction("Spoke: " + speakText.substring(0, 30) + "...")
+    } catch (err) {
+      setLastAction(`Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setIsSpeaking(false)
+    }
+  }, [speakText, gender, isSpeaking])
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-6 md:px-8">
@@ -76,7 +172,6 @@ export default function TestAvatarPage() {
           audioLevel={audioLevel}
           className="h-full w-full"
         />
-        {/* Gender + View overlay */}
         <div className="absolute left-3 top-3 flex gap-2">
           <button
             onClick={() => setGender("female")}
@@ -103,6 +198,25 @@ export default function TestAvatarPage() {
 
       {/* Controls Grid */}
       <div className="grid gap-4 md:grid-cols-2">
+        {/* Speak Text — PRIMARY TEST */}
+        <Section title="🗣️ Speak Text (Gemini TTS)" className="md:col-span-2">
+          <div className="flex gap-2">
+            <Input
+              value={speakText}
+              onChange={(e) => setSpeakText(e.target.value)}
+              placeholder="Type something for the avatar to say..."
+              className="flex-1 border-zinc-700 bg-zinc-800/50"
+              onKeyDown={(e) => e.key === "Enter" && handleSpeak()}
+            />
+            <Button onClick={handleSpeak} disabled={isSpeaking}>
+              {isSpeaking ? "Speaking..." : "Speak"}
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            Uses Gemini TTS → PCM → TalkingHead streamAudio + HeadAudio lip-sync
+          </p>
+        </Section>
+
         {/* Camera Views */}
         <Section title="📷 Camera View">
           <div className="flex flex-wrap gap-2">
@@ -127,25 +241,13 @@ export default function TestAvatarPage() {
         {/* Eye Contact */}
         <Section title="👁️ Eye Contact">
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => doAction("Look at camera", () => avatarRef.current?.lookAtCamera(5000))}
-            >
+            <Button size="sm" variant="outline" onClick={() => doAction("Look at camera", () => avatarRef.current?.lookAtCamera(5000))}>
               👁️ Look at Camera
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => doAction("Look ahead", () => avatarRef.current?.lookAhead(5000))}
-            >
+            <Button size="sm" variant="outline" onClick={() => doAction("Look ahead", () => avatarRef.current?.lookAhead(5000))}>
               ➡️ Look Ahead
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => doAction("Eye contact", () => avatarRef.current?.makeEyeContact(5000))}
-            >
+            <Button size="sm" variant="outline" onClick={() => doAction("Eye contact", () => avatarRef.current?.makeEyeContact(5000))}>
               🤝 Eye Contact
             </Button>
           </div>
@@ -177,25 +279,11 @@ export default function TestAvatarPage() {
         <Section title="🤌 Gestures" className="md:col-span-2">
           <div className="mb-2 flex items-center gap-3">
             <label className="flex items-center gap-2 text-xs text-zinc-400">
-              <input
-                type="checkbox"
-                checked={mirrorGesture}
-                onChange={(e) => setMirrorGesture(e.target.checked)}
-                className="rounded"
-              />
+              <input type="checkbox" checked={mirrorGesture} onChange={(e) => setMirrorGesture(e.target.checked)} className="rounded" />
               Mirror (right hand)
             </label>
             {activeGesture && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  doAction("Stop gesture", () => {
-                    setActiveGesture(null)
-                    avatarRef.current?.stopGesture()
-                  })
-                }
-              >
+              <Button size="sm" variant="outline" onClick={() => doAction("Stop gesture", () => { setActiveGesture(null); avatarRef.current?.stopGesture() })}>
                 Stop
               </Button>
             )}
@@ -206,12 +294,7 @@ export default function TestAvatarPage() {
                 key={g.id}
                 size="sm"
                 variant={activeGesture === g.id ? "default" : "outline"}
-                onClick={() =>
-                  doAction(`Gesture: ${g.label}`, () => {
-                    setActiveGesture(g.id)
-                    avatarRef.current?.playGesture(g.id, 5, mirrorGesture)
-                  })
-                }
+                onClick={() => doAction(`Gesture: ${g.label}`, () => { setActiveGesture(g.id); avatarRef.current?.playGesture(g.id, 5, mirrorGesture) })}
               >
                 {g.label}
               </Button>
@@ -234,62 +317,23 @@ export default function TestAvatarPage() {
           </div>
         </Section>
 
-        {/* Speak Text */}
-        <Section title="🗣️ Speak Text (requires Google TTS key)" className="md:col-span-2">
-          <div className="flex gap-2">
-            <Input
-              value={speakText}
-              onChange={(e) => setSpeakText(e.target.value)}
-              placeholder="Type something for the avatar to say..."
-              className="flex-1 border-zinc-700 bg-zinc-800/50"
-            />
-            <Button
-              onClick={() =>
-                doAction("Speaking...", () => avatarRef.current?.speakText(speakText))
-              }
-            >
-              Speak
-            </Button>
-          </div>
-          <p className="mt-1 text-xs text-zinc-600">
-            Note: speakText needs Google Cloud TTS configured. Emoji expressions work without any API.
-          </p>
-        </Section>
-
         {/* Audio Level Sim */}
         <Section title="🔊 Audio Level Simulation">
-          <Slider
-            min={0}
-            max={1}
-            step={0.01}
-            value={[audioLevel]}
-            onValueChange={(v) => setAudioLevel(v[0] ?? 0)}
-          />
+          <Slider min={0} max={1} step={0.01} value={[audioLevel]} onValueChange={(v) => setAudioLevel(v[0] ?? 0)} />
           <p className="mt-1 text-xs text-zinc-500">Level: {audioLevel.toFixed(2)}</p>
         </Section>
       </div>
 
-      {/* Footer */}
       <p className="pb-6 text-center text-xs text-zinc-600">
-        TalkingHead v1.7 · GLB avatars · Three.js · Built for Avatar Voice Demo
+        TalkingHead v1.7 · HeadAudio lip-sync · Gemini TTS · Built for Avatar Voice Demo
       </p>
     </main>
   )
 }
 
-function Section({
-  title,
-  children,
-  className = "",
-}: {
-  title: string
-  children: React.ReactNode
-  className?: string
-}) {
+function Section({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <div
-      className={`rounded-xl border border-zinc-700/30 bg-zinc-900/40 p-4 backdrop-blur ${className}`}
-    >
+    <div className={`rounded-xl border border-zinc-700/30 bg-zinc-900/40 p-4 backdrop-blur ${className}`}>
       <h2 className="mb-3 text-sm font-semibold text-zinc-300">{title}</h2>
       {children}
     </div>
