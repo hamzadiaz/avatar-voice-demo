@@ -39,38 +39,7 @@ const VIEWS = [
 
 const EMOJIS = ["😊", "😂", "😍", "😢", "😡", "😱", "🤔", "😴", "😎", "🥳", "😘", "🤗"]
 
-const GEMINI_PCM_RATE = 24000
-
-function pcm16ToFloat32(pcm: Int16Array): Float32Array {
-  const f = new Float32Array(pcm.length)
-  for (let i = 0; i < pcm.length; i++) {
-    f[i] = pcm[i] / (pcm[i] < 0 ? 0x8000 : 0x7fff)
-  }
-  return f
-}
-
-function resampleAudio(input: Float32Array, fromRate: number, toRate: number): Float32Array {
-  if (fromRate === toRate) return input
-  const ratio = fromRate / toRate
-  const len = Math.round(input.length / ratio)
-  const out = new Float32Array(len)
-  for (let i = 0; i < len; i++) {
-    const srcIdx = i * ratio
-    const idx = Math.floor(srcIdx)
-    const frac = srcIdx - idx
-    out[i] = (input[idx] ?? 0) * (1 - frac) + (input[idx + 1] ?? 0) * frac
-  }
-  return out
-}
-
-function float32ToPcm16(f32: Float32Array): Int16Array {
-  const pcm = new Int16Array(f32.length)
-  for (let i = 0; i < f32.length; i++) {
-    const s = Math.max(-1, Math.min(1, f32[i]))
-    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff
-  }
-  return pcm
-}
+// No resampling needed — TalkingHead AudioContext runs at 24kHz to match Gemini output
 
 export default function TestAvatarPage() {
   const avatarRef = useRef<TalkingHeadAvatarHandle>(null)
@@ -124,28 +93,17 @@ export default function TestAvatarPage() {
         bytes[i] = binaryStr.charCodeAt(i)
       }
 
-      // Gemini returns 24kHz PCM16 LE — send directly without resampling
-      // TalkingHead's playback worklet will handle the sample rate
+      // Gemini returns 24kHz PCM16 LE
+      // TalkingHead AudioContext is set to 24kHz — feed raw PCM directly
       const pcm16 = new Int16Array(bytes.buffer)
 
-      // Get actual AudioContext sample rate from TalkingHead
-      const head = avatarRef.current?.getHead()
-      const contextRate = head?.audioCtx?.sampleRate || 48000
-
-      // Resample to match AudioContext rate, applying speech rate
-      // Higher speechRate = fewer samples = faster playback
-      const float32 = pcm16ToFloat32(pcm16)
-      const effectiveSourceRate = GEMINI_PCM_RATE * speechRate
-      const resampled = resampleAudio(float32, effectiveSourceRate, contextRate)
-      const resampledPcm = float32ToPcm16(resampled)
-
-      // Feed to avatar — split into 100ms chunks
-      const chunkSize = Math.round(contextRate * 0.1)
-      for (let i = 0; i < resampledPcm.length; i += chunkSize) {
-        const chunk = resampledPcm.slice(i, i + chunkSize)
+      // Split into 100ms chunks (2400 samples at 24kHz)
+      const chunkSize = 2400
+      for (let i = 0; i < pcm16.length; i += chunkSize) {
+        const chunk = pcm16.slice(i, i + chunkSize)
         avatarRef.current?.pushAudioChunk(
           new Float32Array(0),
-          contextRate,
+          24000,
           chunk.buffer
         )
       }

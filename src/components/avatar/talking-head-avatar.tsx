@@ -64,8 +64,9 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           if (!streamingRef.current) {
             try {
               // Use 'none' for lipsync since we drive visemes via HeadAudio worklet
-              // Don't set pcmSampleRate — audio is already resampled to AudioContext rate
-              headRef.current.streamStart({ lipsyncType: "none" })
+              // Set sampleRate to 24000 to match Gemini's PCM output
+              // This reinitializes AudioContext at 24kHz so raw PCM plays at correct speed
+              headRef.current.streamStart({ lipsyncType: "none", sampleRate: 24000 })
               streamingRef.current = true
               console.log("[TalkingHead] Stream started — audio playback active")
               
