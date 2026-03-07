@@ -2,7 +2,8 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import type { VibeType } from "@/lib/constants"
-import type { AvatarMode } from "./vrm-avatar-canvas"
+
+type AvatarMode = "idle" | "listening" | "speaking"
 
 interface TalkingHeadAvatarProps {
   gender: "male" | "female"
@@ -15,6 +16,13 @@ interface TalkingHeadAvatarProps {
 export interface TalkingHeadAvatarHandle {
   pushAudioChunk: (audio: Float32Array, sampleRate: number) => void
   interrupt: () => void
+  setMood: (mood: string) => void
+  setView: (view: string) => void
+  playGesture: (name: string, dur?: number, mirror?: boolean) => void
+  speakEmoji: (emoji: string) => void
+  lookAtCamera: (t?: number) => void
+  lookAhead: (t?: number) => void
+  getHead: () => TalkingHeadInstance | null
 }
 
 type TalkingHeadInstance = {
@@ -34,6 +42,11 @@ type TalkingHeadInstance = {
   streamAudio: (data: { audio: Float32Array; sampleRate?: number }) => void
   streamStop: () => void
   setMood: (mood: string) => void
+  setView: (view: string) => void
+  playGesture: (name: string, dur?: number, mirror?: boolean) => void
+  speakEmoji: (emoji: string) => void
+  lookAtCamera: (t?: number) => void
+  lookAhead: (t?: number) => void
   dispose: () => void
 }
 
@@ -69,6 +82,31 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       headRef.current.streamStop()
       void headRef.current.streamStart({ mood: VIBE_TO_MOOD[vibe] })
     },
+    setMood: (mood: string) => {
+      if (!headRef.current || !isReady) return
+      headRef.current.setMood(mood)
+    },
+    setView: (view: string) => {
+      if (!headRef.current || !isReady) return
+      headRef.current.setView(view)
+    },
+    playGesture: (name: string, dur?: number, mirror?: boolean) => {
+      if (!headRef.current || !isReady) return
+      headRef.current.playGesture(name, dur, mirror)
+    },
+    speakEmoji: (emoji: string) => {
+      if (!headRef.current || !isReady) return
+      headRef.current.speakEmoji(emoji)
+    },
+    lookAtCamera: (t?: number) => {
+      if (!headRef.current || !isReady) return
+      headRef.current.lookAtCamera(t)
+    },
+    lookAhead: (t?: number) => {
+      if (!headRef.current || !isReady) return
+      headRef.current.lookAhead(t)
+    },
+    getHead: () => headRef.current,
   }), [isReady, mode, vibe])
 
   useEffect(() => {
