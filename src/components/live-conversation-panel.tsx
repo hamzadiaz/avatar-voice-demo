@@ -104,12 +104,10 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     languageCode,
     speechRate,
     speechPitch,
-    onAiAudioChunk: (_chunk, _sampleRate, rawPcm16) => {
-      // Feed raw 24kHz PCM16 directly to TalkingHead
-      // TalkingHead's AudioContext is set to 24kHz via streamStart({ sampleRate: 24000 })
-      // No resampling needed — PCM plays at native rate
-      if (!rawPcm16) return
-      talkingHeadRef.current?.pushAudioChunk(new Float32Array(0), 24000, rawPcm16)
+    onAiAudioChunk: (resampledFloat32) => {
+      // resampledFloat32 is already at AudioContext rate (48kHz), resampled by the hook
+      // Feed directly to TalkingHead — it plays audio + HeadAudio detects visemes for lip-sync
+      talkingHeadRef.current?.pushAudioChunk(resampledFloat32)
     },
     onAiAudioInterrupted: () => {
       talkingHeadRef.current?.interrupt()

@@ -39,7 +39,28 @@ const VIEWS = [
 
 const EMOJIS = ["😊", "😂", "😍", "😢", "😡", "😱", "🤔", "😴", "😎", "🥳", "😘", "🤗"]
 
-// No resampling needed — TalkingHead AudioContext runs at 24kHz to match Gemini output
+const GEMINI_PCM_RATE = 24000
+const TARGET_RATE = 48000
+
+function resamplePcm16ToFloat32(pcm16: Int16Array, fromRate: number, toRate: number): Float32Array {
+  // Convert PCM16 to Float32
+  const float32 = new Float32Array(pcm16.length)
+  for (let i = 0; i < pcm16.length; i++) {
+    float32[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7fff)
+  }
+  if (fromRate === toRate) return float32
+  // Resample
+  const ratio = fromRate / toRate
+  const outLen = Math.round(float32.length / ratio)
+  const out = new Float32Array(outLen)
+  for (let i = 0; i < outLen; i++) {
+    const srcIdx = i * ratio
+    const idx = Math.floor(srcIdx)
+    const frac = srcIdx - idx
+    out[i] = (float32[idx] ?? 0) * (1 - frac) + (float32[idx + 1] ?? 0) * frac
+  }
+  return out
+}
 
 export default function TestAvatarPage() {
   const avatarRef = useRef<TalkingHeadAvatarHandle>(null)
@@ -93,19 +114,15 @@ export default function TestAvatarPage() {
         bytes[i] = binaryStr.charCodeAt(i)
       }
 
-      // Gemini returns 24kHz PCM16 LE
-      // TalkingHead AudioContext is set to 24kHz — feed raw PCM directly
+      // Gemini returns 24kHz PCM16 LE — resample to 48kHz Float32
       const pcm16 = new Int16Array(bytes.buffer)
+      const resampled = resamplePcm16ToFloat32(pcm16, GEMINI_PCM_RATE, TARGET_RATE)
 
-      // Split into 100ms chunks (2400 samples at 24kHz)
-      const chunkSize = 2400
-      for (let i = 0; i < pcm16.length; i += chunkSize) {
-        const chunk = pcm16.slice(i, i + chunkSize)
-        avatarRef.current?.pushAudioChunk(
-          new Float32Array(0),
-          24000,
-          chunk.buffer
-        )
+      // Feed Float32 in 100ms chunks (4800 samples at 48kHz)
+      const chunkSize = 4800
+      for (let i = 0; i < resampled.length; i += chunkSize) {
+        const chunk = resampled.slice(i, i + chunkSize)
+        avatarRef.current?.pushAudioChunk(chunk)
       }
 
       setLastAction("Spoke: " + speakText.substring(0, 30) + "...")

@@ -13,7 +13,8 @@ interface TalkingHeadAvatarProps {
 }
 
 export interface TalkingHeadAvatarHandle {
-  pushAudioChunk: (audio: Float32Array, sampleRate: number, rawPcm16?: ArrayBuffer) => void
+  /** Feed resampled Float32 audio at AudioContext rate (48kHz) */
+  pushAudioChunk: (resampledFloat32: Float32Array) => void
   interrupt: () => void
   startStreaming: () => void
   stopStreaming: () => void
@@ -58,15 +59,15 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
     useImperativeHandle(
       ref,
       () => ({
-        pushAudioChunk: (_audio: Float32Array, _sampleRate: number, rawPcm16?: ArrayBuffer) => {
-          if (!headRef.current || !isReady || !rawPcm16) return
+        pushAudioChunk: (resampledFloat32: Float32Array) => {
+          if (!headRef.current || !isReady || !resampledFloat32?.length) return
           // Start streaming mode on first chunk if not already streaming
           if (!streamingRef.current) {
             try {
               // Use 'none' for lipsync since we drive visemes via HeadAudio worklet
-              // Set sampleRate to 24000 to match Gemini's PCM output
-              // This reinitializes AudioContext at 24kHz so raw PCM plays at correct speed
-              headRef.current.streamStart({ lipsyncType: "none", sampleRate: 24000 })
+              // Keep AudioContext at default 48kHz (HeadAudio model needs it)
+              // Audio must be resampled to 48kHz before feeding
+              headRef.current.streamStart({ lipsyncType: "none" })
               streamingRef.current = true
               console.log("[TalkingHead] Stream started — audio playback active")
               
@@ -77,9 +78,9 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
               return
             }
           }
-          // Feed raw PCM16 LE audio — TalkingHead plays it, HeadAudio analyzes it for lip-sync
+          // Feed resampled Float32 — TalkingHead converts to Int16 internally, plays + HeadAudio lip-syncs
           try {
-            headRef.current.streamAudio({ audio: rawPcm16 })
+            headRef.current.streamAudio({ audio: resampledFloat32 })
           } catch (e) {
             console.error("[TalkingHead] streamAudio failed:", e)
           }
