@@ -52,6 +52,9 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
     const containerRef = useRef<HTMLDivElement | null>(null)
     const headRef = useRef<TalkingHeadInstance | null>(null)
     const streamingRef = useRef(false)
+    const headAudioReadyRef = useRef(false)
+    const headAudioInitPromiseRef = useRef<Promise<void> | null>(null)
+    const pendingAudioChunksRef = useRef<Float32Array[]>([])
     const [isReady, setIsReady] = useState(false)
     const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
     const [errorMsg, setErrorMsg] = useState("")
@@ -61,13 +64,43 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       () => ({
         pushAudioChunk: (resampledFloat32: Float32Array) => {
           if (!headRef.current || !isReady || !resampledFloat32?.length) return
-          // Resume AudioContext on first user-triggered audio (browser requires gesture)
-          const ctx = headRef.current.audioCtx
+          const head = headRef.current
+
+          // Ensure audio context running
+          const ctx = head.audioCtx
           if (ctx?.state === "suspended") {
             ctx.resume().catch(() => {})
           }
+
+          // Ensure stream mode active
+          if (!streamingRef.current) {
+            try {
+              head.streamStart({ lipsyncType: "none" })
+              streamingRef.current = true
+            } catch (e) {
+              console.error("[TalkingHead] streamStart failed:", e)
+              return
+            }
+          }
+
+          // Ensure HeadAudio is connected before sending chunks for lip-sync
+          if (!headAudioReadyRef.current) {
+            pendingAudioChunksRef.current.push(resampledFloat32)
+            if (!headAudioInitPromiseRef.current) {
+              headAudioInitPromiseRef.current = connectHeadAudio(head).then(() => {
+                const queued = pendingAudioChunksRef.current.splice(0)
+                for (const chunk of queued) {
+                  try { head.streamAudio({ audio: chunk }) } catch {}
+                }
+              }).finally(() => {
+                headAudioInitPromiseRef.current = null
+              })
+            }
+            return
+          }
+
           try {
-            headRef.current.streamAudio({ audio: resampledFloat32 })
+            head.streamAudio({ audio: resampledFloat32 })
           } catch (e) {
             console.error("[TalkingHead] streamAudio failed:", e)
           }
@@ -95,6 +128,8 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           try {
             headRef.current.streamStop()
             streamingRef.current = false
+            headAudioReadyRef.current = false
+            pendingAudioChunksRef.current = []
           } catch {
             // ignore
           }
@@ -193,8 +228,10 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         // Link update to animation loop
         head.opt.update = headAudio.update.bind(headAudio)
 
+        headAudioReadyRef.current = true
         console.log("[HeadAudio] ✅ Connected — audio-driven lip-sync active")
       } catch (err) {
+        headAudioReadyRef.current = false
         console.error("[HeadAudio] Failed:", err)
       }
     }
@@ -262,16 +299,14 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
 
           headRef.current = instance
 
-          // Start streaming mode now so worklet connects to audioStreamGainNode
-          instance.streamStart({ lipsyncType: "none" })
-          streamingRef.current = true
-
-          // Connect HeadAudio to the stream audio path for lip-sync
-          await connectHeadAudio(instance)
+          // Defer streaming + HeadAudio connection until first real audio chunk
+          streamingRef.current = false
+          headAudioReadyRef.current = false
+          pendingAudioChunksRef.current = []
 
           setIsReady(true)
           setStatus("ready")
-          console.log("[TalkingHead] ✅ Avatar loaded, HeadAudio connected, lip-sync ready")
+          console.log("[TalkingHead] ✅ Avatar loaded, stream/lip-sync will initialize on first audio")
         } catch (error) {
           console.error("[TalkingHead] Failed:", error)
           setStatus("error")
@@ -286,6 +321,9 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         cancelled = true
         setIsReady(false)
         streamingRef.current = false
+        headAudioReadyRef.current = false
+        headAudioInitPromiseRef.current = null
+        pendingAudioChunksRef.current = []
         if (headRef.current) {
           try { headRef.current.streamStop() } catch { /* ignore */ }
           headRef.current.dispose()
