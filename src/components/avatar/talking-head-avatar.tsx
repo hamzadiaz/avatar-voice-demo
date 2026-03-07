@@ -199,16 +199,10 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
 
       // Map frequency bands to Oculus visemes (simplified but effective)
       // Low freqs → jaw open (aa/O), mid freqs → lip shapes (E/I/U), high freqs → consonants (SS/FF/kk)
-      let logCount = 0
       const driveVisemes = () => {
         if (!head.mtAvatar) return
 
         analyser.getByteFrequencyData(freqData)
-        const maxVal = Math.max(...Array.from(freqData))
-        if (maxVal > 0 && logCount < 5) {
-          logCount++
-          console.log("[LipSync] FFT max:", maxVal, "first8:", Array.from(freqData.slice(0, 8)))
-        }
 
         // Compute energy in frequency bands (0-255 range)
         const binHz = (audioCtx.sampleRate / 2) / analyser.frequencyBinCount
