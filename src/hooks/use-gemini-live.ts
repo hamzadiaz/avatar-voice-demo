@@ -74,6 +74,7 @@ export function useGeminiLive({
   const userAnalyserRef = useRef<AnalyserNode | null>(null)
   const aiSpeechGainRef = useRef<GainNode | null>(null)
   const aiAnalyserRef = useRef<AnalyserNode | null>(null)
+  const aiDecayTimerRef = useRef<number | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const playbackChainRef = useRef<Promise<void>>(Promise.resolve())
   const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null)
@@ -344,6 +345,15 @@ export function useGeminiLive({
               const resampled = resampleAudio(float32, GEMINI_OUTPUT_SAMPLE_RATE, outputSampleRate)
               if (!externalAudioPlayback) {
                 queueAudio(resampled)
+              } else {
+                // Compute aiAudioLevel from chunks directly (analyser is bypassed)
+                let sum = 0
+                for (let i = 0; i < resampled.length; i++) sum += resampled[i] * resampled[i]
+                const rms = Math.sqrt(sum / resampled.length)
+                setAiAudioLevel(Math.min(1, rms * 4))
+                // Auto-decay after audio stops
+                if (aiDecayTimerRef.current) clearTimeout(aiDecayTimerRef.current)
+                aiDecayTimerRef.current = window.setTimeout(() => setAiAudioLevel(0), 300)
               }
               onAiAudioChunk?.(resampled, outputSampleRate, pcmBuffer)
             }
