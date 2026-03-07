@@ -53,8 +53,8 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
     const headRef = useRef<TalkingHeadInstance | null>(null)
     const streamingRef = useRef(false)
     const headAudioReadyRef = useRef(false)
-    const headAudioInitPromiseRef = useRef<Promise<void> | null>(null)
     const pendingAudioChunksRef = useRef<Float32Array[]>([])
+    const processingQueueRef = useRef(false)
     const [isReady, setIsReady] = useState(false)
     const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
     const [errorMsg, setErrorMsg] = useState("")
@@ -64,46 +64,52 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       () => ({
         pushAudioChunk: (resampledFloat32: Float32Array) => {
           if (!headRef.current || !isReady || !resampledFloat32?.length) return
-          const head = headRef.current
 
-          // Ensure audio context running
-          const ctx = head.audioCtx
-          if (ctx?.state === "suspended") {
-            ctx.resume().catch(() => {})
-          }
+          // Queue incoming chunks to preserve order during async init
+          pendingAudioChunksRef.current.push(resampledFloat32)
+          if (processingQueueRef.current) return
+          processingQueueRef.current = true
 
-          // Ensure stream mode active
-          if (!streamingRef.current) {
+          const processQueue = async () => {
+            const head = headRef.current
+            if (!head) { processingQueueRef.current = false; return }
+
             try {
-              head.streamStart({ lipsyncType: "none" })
-              streamingRef.current = true
+              // 1) Resume AudioContext after user gesture-triggered call
+              const ctx = head.audioCtx
+              if (ctx?.state === "suspended") {
+                await ctx.resume()
+              }
+
+              // 2) Ensure stream mode active
+              if (!streamingRef.current) {
+                head.streamStart({ lipsyncType: "none" })
+                streamingRef.current = true
+              }
+
+              // 3) Ensure HeadAudio connected for lip-sync detection
+              if (!headAudioReadyRef.current) {
+                await connectHeadAudio(head)
+              }
+
+              // 4) Flush all queued audio chunks in order
+              const queued = pendingAudioChunksRef.current.splice(0)
+              for (const chunk of queued) {
+                head.streamAudio({ audio: chunk })
+              }
             } catch (e) {
-              console.error("[TalkingHead] streamStart failed:", e)
-              return
+              console.error("[TalkingHead] audio pipeline failed:", e)
+            } finally {
+              processingQueueRef.current = false
+              // If new chunks arrived while processing, run again
+              if (pendingAudioChunksRef.current.length > 0) {
+                processingQueueRef.current = true
+                void processQueue()
+              }
             }
           }
 
-          // Ensure HeadAudio is connected before sending chunks for lip-sync
-          if (!headAudioReadyRef.current) {
-            pendingAudioChunksRef.current.push(resampledFloat32)
-            if (!headAudioInitPromiseRef.current) {
-              headAudioInitPromiseRef.current = connectHeadAudio(head).then(() => {
-                const queued = pendingAudioChunksRef.current.splice(0)
-                for (const chunk of queued) {
-                  try { head.streamAudio({ audio: chunk }) } catch {}
-                }
-              }).finally(() => {
-                headAudioInitPromiseRef.current = null
-              })
-            }
-            return
-          }
-
-          try {
-            head.streamAudio({ audio: resampledFloat32 })
-          } catch (e) {
-            console.error("[TalkingHead] streamAudio failed:", e)
-          }
+          void processQueue()
         },
         interrupt: () => {
           if (!headRef.current || !streamingRef.current) return
@@ -322,8 +328,8 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         setIsReady(false)
         streamingRef.current = false
         headAudioReadyRef.current = false
-        headAudioInitPromiseRef.current = null
         pendingAudioChunksRef.current = []
+        processingQueueRef.current = false
         if (headRef.current) {
           try { headRef.current.streamStop() } catch { /* ignore */ }
           headRef.current.dispose()
