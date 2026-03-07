@@ -64,7 +64,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           if (!streamingRef.current) {
             try {
               // Use 'none' for lipsync since we drive visemes via HeadAudio worklet
-              headRef.current.streamStart({ lipsyncType: "none" })
+              headRef.current.streamStart({ lipsyncType: "none", pcmSampleRate: 24000 })
               streamingRef.current = true
               console.log("[TalkingHead] Stream started — audio playback active")
               
@@ -187,11 +187,17 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           return
         }
 
-        // Drive TalkingHead's blend shapes from HeadAudio viseme detection
+        // Smooth viseme values to prevent jittery lip movement
+        const smoothedValues: Record<string, number> = {}
+        const SMOOTHING = 0.35 // 0 = no smoothing, 1 = frozen. 0.35 = natural human-like
+
         headAudio.onvalue = (key: string, value: number) => {
-          if (head.mtAvatar?.[key]) {
-            Object.assign(head.mtAvatar[key], { newvalue: value, needsUpdate: true })
-          }
+          if (!head.mtAvatar?.[key]) return
+          // Exponential smoothing: lerp between current and target
+          const prev = smoothedValues[key] ?? 0
+          const smoothed = prev + (value - prev) * (1 - SMOOTHING)
+          smoothedValues[key] = smoothed
+          Object.assign(head.mtAvatar[key], { newvalue: smoothed, needsUpdate: true })
         }
 
         // Link update to animation loop
