@@ -109,8 +109,19 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     speechRate,
     speechPitch,
     onAiAudioChunk: () => {
-      // Audio playback is handled by the hook's internal queueAudio
-      // Lip-sync is handled by HeadAudio worklet connected to the audio output
+      // Audio playback handled by hook's queueAudio.
+      // Connect HeadAudio for lip-sync on first chunk (gain node exists now)
+      if (!lipSyncConnectedRef.current && talkingHeadRef.current) {
+        const ctx = audioContextRef.current
+        const gain = aiSpeechGainRef.current
+        if (ctx && gain) {
+          lipSyncConnectedRef.current = true
+          talkingHeadRef.current.connectAudioForLipSync(ctx, gain).catch((err: unknown) => {
+            console.error("[LipSync] HeadAudio connection failed:", err)
+            lipSyncConnectedRef.current = false
+          })
+        }
+      }
     },
     onAiAudioInterrupted: () => {
       // HeadAudio follows the audio stream automatically
@@ -155,20 +166,6 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
   useEffect(() => {
     if (isConnected) playConnectedChime()
   }, [isConnected])
-
-  // Connect HeadAudio for lip-sync when conversation is live
-  useEffect(() => {
-    if (!isConnected || lipSyncConnectedRef.current) return
-    const audioCtx = audioContextRef.current
-    const speechGain = aiSpeechGainRef.current
-    if (!audioCtx || !speechGain || !talkingHeadRef.current) return
-
-    lipSyncConnectedRef.current = true
-    talkingHeadRef.current.connectAudioForLipSync(audioCtx, speechGain).catch((err: unknown) => {
-      console.error("[LiveConversation] HeadAudio connection failed:", err)
-      lipSyncConnectedRef.current = false
-    })
-  }, [isConnected, audioContextRef, aiSpeechGainRef])
 
   // Reset lip-sync state on disconnect
   useEffect(() => {
