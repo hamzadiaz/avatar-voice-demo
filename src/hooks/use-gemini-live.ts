@@ -72,6 +72,7 @@ export function useGeminiLive({
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
   const userAnalyserRef = useRef<AnalyserNode | null>(null)
+  const aiSpeechGainRef = useRef<GainNode | null>(null)
   const aiAnalyserRef = useRef<AnalyserNode | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const playbackChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -108,6 +109,17 @@ export function useGeminiLive({
     const analyser = aiAnalyserRef.current
     if (!audioContext) return
 
+    // Create persistent speech gain node if needed (HeadAudio taps into this)
+    if (!aiSpeechGainRef.current) {
+      const masterGain = audioContext.createGain()
+      masterGain.gain.value = 1
+      masterGain.connect(audioContext.destination)
+      if (analyser) masterGain.connect(analyser)
+      aiSpeechGainRef.current = masterGain
+    }
+
+    const masterGain = aiSpeechGainRef.current
+
     playbackChainRef.current = playbackChainRef.current.then(
       () =>
         new Promise<void>((resolve) => {
@@ -118,11 +130,7 @@ export function useGeminiLive({
           source.playbackRate.value = speechRate
           source.detune.value = speechPitch
 
-          const gainNode = audioContext.createGain()
-          gainNode.gain.value = 1
-          source.connect(gainNode)
-          gainNode.connect(audioContext.destination)
-          if (analyser) gainNode.connect(analyser)
+          source.connect(masterGain)
 
           currentAudioSourceRef.current = source
           source.onended = () => {
@@ -474,5 +482,8 @@ export function useGeminiLive({
     disconnect,
     clearTranscript,
     sendTextPrompt,
+    /** Expose for HeadAudio lip-sync connection */
+    audioContextRef,
+    aiSpeechGainRef,
   }
 }

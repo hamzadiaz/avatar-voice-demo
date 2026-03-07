@@ -38,6 +38,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       </head>
       <body className="antialiased">
         <Script src="/talkinghead-loader.js" strategy="beforeInteractive" />
+        <Script src="/headaudio-loader.js" strategy="beforeInteractive" />
         {children}
       </body>
     </html>

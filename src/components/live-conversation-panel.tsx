@@ -86,6 +86,8 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
   const captureRef = useRef<HTMLDivElement | null>(null)
   const talkingHeadRef = useRef<TalkingHeadAvatarHandle | null>(null)
 
+  const lipSyncConnectedRef = useRef(false)
+
   const {
     connectionState,
     toggle,
@@ -98,17 +100,20 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     clearTranscript,
     aiAudioLevel,
     userAudioLevel,
+    audioContextRef,
+    aiSpeechGainRef,
   } = useGeminiLive({
     voiceName: voice,
     systemInstruction: dynamicInstruction,
     languageCode,
     speechRate,
     speechPitch,
-    onAiAudioChunk: (chunk, sampleRate) => {
-      talkingHeadRef.current?.pushAudioChunk(chunk, sampleRate)
+    onAiAudioChunk: () => {
+      // Audio playback is handled by the hook's internal queueAudio
+      // Lip-sync is handled by HeadAudio worklet connected to the audio output
     },
     onAiAudioInterrupted: () => {
-      talkingHeadRef.current?.interrupt()
+      // HeadAudio follows the audio stream automatically
     },
     onMoodChange: (mood) => {
       talkingHeadRef.current?.setMood(mood)
@@ -126,7 +131,7 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
         talkingHeadRef.current?.lookAhead(3000)
       }
     },
-    externalAudioPlayback: true,
+    externalAudioPlayback: false,
   })
 
   const isConnected = connectionState === "connected"
@@ -149,6 +154,25 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
 
   useEffect(() => {
     if (isConnected) playConnectedChime()
+  }, [isConnected])
+
+  // Connect HeadAudio for lip-sync when conversation is live
+  useEffect(() => {
+    if (!isConnected || lipSyncConnectedRef.current) return
+    const audioCtx = audioContextRef.current
+    const speechGain = aiSpeechGainRef.current
+    if (!audioCtx || !speechGain || !talkingHeadRef.current) return
+
+    lipSyncConnectedRef.current = true
+    talkingHeadRef.current.connectAudioForLipSync(audioCtx, speechGain).catch((err: unknown) => {
+      console.error("[LiveConversation] HeadAudio connection failed:", err)
+      lipSyncConnectedRef.current = false
+    })
+  }, [isConnected, audioContextRef, aiSpeechGainRef])
+
+  // Reset lip-sync state on disconnect
+  useEffect(() => {
+    if (!isConnected) lipSyncConnectedRef.current = false
   }, [isConnected])
 
   useEffect(() => {

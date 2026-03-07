@@ -3,12 +3,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 
 type VibeType = "Neutral" | "Joyful" | "Excited" | "Chill" | "Serious" | "Empathetic"
-type AvatarMode = "idle" | "listening" | "speaking"
 
 interface TalkingHeadAvatarProps {
   gender: "male" | "female"
   vibe?: VibeType
-  mode?: AvatarMode
+  mode?: string
   audioLevel?: number
   className?: string
 }
@@ -25,7 +24,10 @@ export interface TalkingHeadAvatarHandle {
   lookAtCamera: (t?: number) => void
   lookAhead: (t?: number) => void
   makeEyeContact: (t?: number) => void
-  getHead: () => TalkingHeadInstance | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getHead: () => any
+  /** Connect an external AudioContext's audio node for HeadAudio lip-sync */
+  connectAudioForLipSync: (audioCtx: AudioContext, sourceNode: AudioNode) => Promise<void>
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,9 +46,11 @@ const VIBE_TO_MOOD: Record<VibeType, string> = {
 }
 
 export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHeadAvatarProps>(
-  function TalkingHeadAvatar({ gender, vibe = "Neutral", mode = "idle", audioLevel = 0, className }, ref) {
+  function TalkingHeadAvatar({ gender, vibe = "Neutral", audioLevel = 0, className }, ref) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const headRef = useRef<TalkingHeadInstance | null>(null)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const headAudioRef = useRef<any>(null)
     const [isReady, setIsReady] = useState(false)
     const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
     const [errorMsg, setErrorMsg] = useState("")
@@ -54,14 +58,12 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
     useImperativeHandle(
       ref,
       () => ({
-        pushAudioChunk: (audio, sampleRate) => {
-          if (!headRef.current || !isReady) return
-          headRef.current.streamAudio({ audio, sampleRate })
+        pushAudioChunk: () => {
+          // Audio-driven lip-sync is handled by HeadAudio worklet
+          // No need to push chunks manually anymore
         },
         interrupt: () => {
-          if (!headRef.current) return
-          headRef.current.streamStop()
-          void headRef.current.streamStart({ mood: VIBE_TO_MOOD[vibe] })
+          // Nothing to interrupt in HeadAudio mode — it follows audio automatically
         },
         setMood: (mood: string) => {
           if (!headRef.current) return
@@ -100,8 +102,68 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           headRef.current.makeEyeContact(t)
         },
         getHead: () => headRef.current,
+        connectAudioForLipSync: async (audioCtx: AudioContext, sourceNode: AudioNode) => {
+          const head = headRef.current
+          if (!head || !isReady) {
+            console.warn("[TalkingHead] Not ready for HeadAudio connection")
+            return
+          }
+
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let HeadAudioNode = (window as any).HeadAudioNode
+            if (!HeadAudioNode) {
+              await new Promise<void>((resolve, reject) => {
+                const timeout = setTimeout(() => reject(new Error("HeadAudio load timeout")), 10000)
+                window.addEventListener("headaudio-ready", () => { clearTimeout(timeout); resolve() }, { once: true })
+              })
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              HeadAudioNode = (window as any).HeadAudioNode
+            }
+            if (!HeadAudioNode) {
+              console.error("[HeadAudio] Module not available")
+              return
+            }
+
+            // Register the worklet processor
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const workletUrl = (window as any).__headAudioWorkletUrl
+            await audioCtx.audioWorklet.addModule(workletUrl)
+
+            // Create HeadAudio node
+            const headAudio = new HeadAudioNode(audioCtx, {
+              parameterData: {
+                vadGateActiveDb: -40,
+                vadGateInactiveDb: -60,
+              },
+            })
+
+            // Load the pre-trained viseme model
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const modelUrl = (window as any).__headAudioModelUrl
+            await headAudio.loadModel(modelUrl)
+
+            // Connect audio source → HeadAudio (for analysis only, no audio output)
+            sourceNode.connect(headAudio)
+
+            // Set the callback to drive TalkingHead's blend shapes
+            headAudio.onvalue = (key: string, value: number) => {
+              if (head.mtAvatar && head.mtAvatar[key]) {
+                Object.assign(head.mtAvatar[key], { newvalue: value, needsUpdate: true })
+              }
+            }
+
+            // Link HeadAudio's update to TalkingHead's animation loop
+            head.opt.update = headAudio.update.bind(headAudio)
+
+            headAudioRef.current = headAudio
+            console.log("[HeadAudio] ✅ Connected for audio-driven lip-sync")
+          } catch (err) {
+            console.error("[HeadAudio] Failed to connect:", err)
+          }
+        },
       }),
-      [isReady, mode, vibe]
+      [isReady]
     )
 
     useEffect(() => {
@@ -141,6 +203,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
             lightDirectIntensity: 26,
             lightSpotIntensity: 0,
             avatarMood: VIBE_TO_MOOD[vibe],
+            avatarMute: true, // We handle audio playback externally
             avatarIdleEyeContact: 0.35,
             avatarIdleHeadMove: 0.5,
             avatarSpeakingEyeContact: 0.65,
@@ -157,7 +220,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
             body: gender === "female" ? "F" : "M",
             lipsyncLang: "en",
             avatarMood: VIBE_TO_MOOD[vibe],
-            avatarMute: false,
+            avatarMute: true,
             avatarIdleEyeContact: 0.35,
             avatarIdleHeadMove: 0.5,
             avatarSpeakingEyeContact: 0.65,
@@ -169,12 +232,6 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
             instance.dispose()
             return
           }
-
-          // Start streaming mode so streamAudio() works for lip-sync
-          await instance.streamStart({
-            mood: VIBE_TO_MOOD[vibe],
-            waitForAudioChunks: true,
-          })
 
           headRef.current = instance
           setIsReady(true)
