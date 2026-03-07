@@ -61,7 +61,11 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       () => ({
         pushAudioChunk: (resampledFloat32: Float32Array) => {
           if (!headRef.current || !isReady || !resampledFloat32?.length) return
-          // Streaming + HeadAudio already connected at init
+          // Resume AudioContext on first user-triggered audio (browser requires gesture)
+          const ctx = headRef.current.audioCtx
+          if (ctx?.state === "suspended") {
+            ctx.resume().catch(() => {})
+          }
           try {
             headRef.current.streamAudio({ audio: resampledFloat32 })
           } catch (e) {
