@@ -33,6 +33,8 @@ interface UseGeminiLiveOptions {
   onGesture?: (gesture: string) => void
   onEmoji?: (emoji: string) => void
   onLook?: (direction: string) => void
+  /** When true, skip internal audio playback (TalkingHead handles it) */
+  externalAudioPlayback?: boolean
 }
 
 const GEMINI_INPUT_SAMPLE_RATE = 16000
@@ -55,6 +57,7 @@ export function useGeminiLive({
   onGesture,
   onEmoji,
   onLook,
+  externalAudioPlayback = false,
 }: UseGeminiLiveOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle")
   const [userAudioLevel, setUserAudioLevel] = useState(0)
@@ -331,7 +334,9 @@ export function useGeminiLive({
               const float32 = pcm16ToFloat32(new Int16Array(pcmBuffer))
               const outputSampleRate = audioContextRef.current?.sampleRate || 48000
               const resampled = resampleAudio(float32, GEMINI_OUTPUT_SAMPLE_RATE, outputSampleRate)
-              queueAudio(resampled)
+              if (!externalAudioPlayback) {
+                queueAudio(resampled)
+              }
               onAiAudioChunk?.(resampled, outputSampleRate)
             }
           }

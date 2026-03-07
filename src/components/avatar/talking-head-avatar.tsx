@@ -55,7 +55,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       ref,
       () => ({
         pushAudioChunk: (audio, sampleRate) => {
-          if (!headRef.current || !isReady || mode !== "speaking") return
+          if (!headRef.current || !isReady) return
           headRef.current.streamAudio({ audio, sampleRate })
         },
         interrupt: () => {
@@ -159,6 +159,12 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
             instance.dispose()
             return
           }
+
+          // Start streaming mode so streamAudio() works for lip-sync
+          await instance.streamStart({
+            mood: VIBE_TO_MOOD[vibe],
+            waitForAudioChunks: true,
+          })
 
           headRef.current = instance
           setIsReady(true)

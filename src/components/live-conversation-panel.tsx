@@ -126,6 +126,7 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
         talkingHeadRef.current?.lookAhead(3000)
       }
     },
+    externalAudioPlayback: true,
   })
 
   const isConnected = connectionState === "connected"
