@@ -81,13 +81,14 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
                 await ctx.resume()
               }
 
-              // 2) Ensure stream mode active
+              // 2) Ensure stream mode active — MUST await before HeadAudio or streamAudio
               if (!streamingRef.current) {
-                head.streamStart({ lipsyncType: "none" })
+                await head.streamStart({ lipsyncType: "none" })
                 streamingRef.current = true
+                console.log("[TalkingHead] streamStart complete, worklet ready")
               }
 
-              // 3) Connect HeadAudio ML lip-sync
+              // 3) Connect HeadAudio ML lip-sync (after streamStart to avoid concurrent worklet loads)
               if (!headAudioReadyRef.current) {
                 await connectHeadAudio(head)
               }

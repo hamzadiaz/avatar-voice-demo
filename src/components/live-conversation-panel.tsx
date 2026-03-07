@@ -76,11 +76,33 @@ function AudioRings({ level }: { level: number }) {
   )
 }
 
+const GEMINI_PCM_RATE = 24000
+const TARGET_RATE = 48000
+
+function resamplePcm16ToFloat32(pcm16: Int16Array, fromRate: number, toRate: number): Float32Array {
+  const float32 = new Float32Array(pcm16.length)
+  for (let i = 0; i < pcm16.length; i++) {
+    float32[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7fff)
+  }
+  if (fromRate === toRate) return float32
+  const ratio = fromRate / toRate
+  const outLen = Math.round(float32.length / ratio)
+  const out = new Float32Array(outLen)
+  for (let i = 0; i < outLen; i++) {
+    const srcIdx = i * ratio
+    const idx = Math.floor(srcIdx)
+    const frac = srcIdx - idx
+    out[i] = (float32[idx] ?? 0) * (1 - frac) + (float32[idx + 1] ?? 0) * frac
+  }
+  return out
+}
+
 export function LiveConversationPanel({ voice, gender, languageCode, mirroring }: LiveConversationPanelProps) {
   const [textPrompt, setTextPrompt] = useState("")
   const [speechRate, setSpeechRate] = useState(1)
   const [speechPitch, setSpeechPitch] = useState(0)
   const [isSharing, setIsSharing] = useState(false)
+  const [isTesting, setIsTesting] = useState(false)
 
   const dynamicInstruction = `${EMOTIONAL_MIRRORING_INSTRUCTION}\nEmotional mirroring intensity (0-100): ${Math.round(mirroring)}.`
   const captureRef = useRef<HTMLDivElement | null>(null)
@@ -197,6 +219,41 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     toggle()
   }
 
+  // Test button: same batch TTS path as test-avatar page
+  const handleTestSpeak = async () => {
+    if (isTesting || !talkingHeadRef.current) return
+    setIsTesting(true)
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "Hello! I am your AI avatar. Nice to meet you!",
+          voiceName: gender === "female" ? "Kore" : "Puck",
+        }),
+      })
+      if (!res.ok) { console.error("TTS error:", await res.text()); return }
+      const data = await res.json()
+      if (!data.audioBase64) return
+
+      const binaryStr = atob(data.audioBase64)
+      const bytes = new Uint8Array(binaryStr.length)
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
+
+      const pcm16 = new Int16Array(bytes.buffer)
+      const resampled = resamplePcm16ToFloat32(pcm16, GEMINI_PCM_RATE, TARGET_RATE)
+
+      const chunkSize = 4800
+      for (let i = 0; i < resampled.length; i += chunkSize) {
+        talkingHeadRef.current?.pushAudioChunk(resampled.slice(i, i + chunkSize))
+      }
+    } catch (err) {
+      console.error("Test speak failed:", err)
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
   const handleShare = async () => {
     if (!captureRef.current) return
     setIsSharing(true)
@@ -302,6 +359,9 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
             </Button>
             <Button variant="outline" onClick={handleShare} disabled={isSharing} className="sm:hidden">
               <Camera className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={handleTestSpeak} disabled={isTesting}>
+              {isTesting ? "Speaking..." : "🧪 Test Speak"}
             </Button>
             <Button variant="outline" onClick={clearTranscript}>Clear</Button>
           </div>
