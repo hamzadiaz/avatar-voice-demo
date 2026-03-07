@@ -6,8 +6,8 @@
   const script = document.createElement('script');
   script.type = 'module';
   script.textContent = `
-    import { HeadAudioNode } from "https://cdn.jsdelivr.net/gh/met4citizen/HeadAudio@main/modules/headaudio.mjs";
-    window.HeadAudioNode = HeadAudioNode;
+    import { HeadAudio } from "https://cdn.jsdelivr.net/gh/met4citizen/HeadAudio@main/modules/headaudio.mjs";
+    window.HeadAudioNode = HeadAudio;
     window.__headAudioWorkletUrl = "https://cdn.jsdelivr.net/gh/met4citizen/HeadAudio@main/modules/headworklet.mjs";
     window.__headAudioModelUrl = "https://cdn.jsdelivr.net/gh/met4citizen/HeadAudio@main/dist/model-en-mixed.bin";
     window.dispatchEvent(new Event('headaudio-ready'));
