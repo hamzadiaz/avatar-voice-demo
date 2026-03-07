@@ -12,23 +12,30 @@ interface SpriteAvatarCanvasProps {
   mode: AvatarMode
   audioLevel: number
   className?: string
+  blinkSignal?: number
 }
 
-function useBlinkTicker() {
-  const [blinkOn, setBlinkOn] = useState(false)
+function useBlinkTicker(enabled: boolean, blinkSignal?: number) {
+  const [autoBlinkOn, setAutoBlinkOn] = useState(false)
+  const [manualBlinkOn, setManualBlinkOn] = useState(false)
 
   useEffect(() => {
+    if (!enabled) {
+      setAutoBlinkOn(false)
+      return
+    }
+
     let timeout: ReturnType<typeof setTimeout> | undefined
     let blinkTimeout: ReturnType<typeof setTimeout> | undefined
 
     const schedule = () => {
       timeout = setTimeout(() => {
-        setBlinkOn(true)
+        setAutoBlinkOn(true)
         blinkTimeout = setTimeout(() => {
-          setBlinkOn(false)
+          setAutoBlinkOn(false)
           schedule()
-        }, 110)
-      }, 1400 + Math.random() * 2600)
+        }, 90)
+      }, 1600 + Math.random() * 2400)
     }
 
     schedule()
@@ -36,28 +43,68 @@ function useBlinkTicker() {
       if (timeout) clearTimeout(timeout)
       if (blinkTimeout) clearTimeout(blinkTimeout)
     }
-  }, [])
+  }, [enabled])
 
-  return blinkOn
+  useEffect(() => {
+    if (blinkSignal === undefined || !enabled) return
+    setManualBlinkOn(true)
+    const timeout = setTimeout(() => setManualBlinkOn(false), 95)
+    return () => clearTimeout(timeout)
+  }, [blinkSignal, enabled])
+
+  return autoBlinkOn || manualBlinkOn
 }
 
-export function SpriteAvatarCanvas({ gender, vibe, mode, audioLevel, className }: SpriteAvatarCanvasProps) {
-  const blinkOn = useBlinkTicker()
+function useSpeakingFrame(mode: AvatarMode, audioLevel: number) {
+  const [frame, setFrame] = useState<"a" | "b">("a")
 
+  useEffect(() => {
+    if (mode !== "speaking") {
+      setFrame("a")
+      return
+    }
+
+    const normalized = Math.max(0, Math.min(1, audioLevel))
+    const interval = Math.max(70, Math.round(210 - normalized * 130))
+    const timer = setInterval(() => setFrame((prev) => (prev === "a" ? "b" : "a")), interval)
+
+    return () => clearInterval(timer)
+  }, [audioLevel, mode])
+
+  return frame
+}
+
+export function SpriteAvatarCanvas({ gender, vibe, mode, audioLevel, className, blinkSignal }: SpriteAvatarCanvasProps) {
+  const speakingFrame = useSpeakingFrame(mode, audioLevel)
+  const blinkOn = useBlinkTicker(mode !== "speaking", blinkSignal)
   const base = `/avatar-frames/${gender}`
 
-  const src = useMemo(() => {
+  const targetSrc = useMemo(() => {
     if (blinkOn) return `${base}/blink.png`
-    if (mode === "speaking") {
-      if (audioLevel > 0.26) return `${base}/speaking-b.png`
-      return `${base}/speaking-a.png`
-    }
+    if (mode === "speaking") return `${base}/speaking-${speakingFrame}.png`
     if (mode === "listening") return `${base}/listening.png`
     if (vibe === "Joyful") return `${base}/joyful.png`
     if (vibe === "Excited") return `${base}/excited.png`
     if (vibe === "Serious") return `${base}/serious.png`
     return `${base}/idle.png`
-  }, [audioLevel, base, blinkOn, mode, vibe])
+  }, [base, blinkOn, mode, speakingFrame, vibe])
+
+  const [currentSrc, setCurrentSrc] = useState(targetSrc)
+  const [previousSrc, setPreviousSrc] = useState<string | null>(null)
+  const [showCurrent, setShowCurrent] = useState(true)
+
+  useEffect(() => {
+    if (targetSrc === currentSrc) return
+    setPreviousSrc(currentSrc)
+    setCurrentSrc(targetSrc)
+    setShowCurrent(false)
+    const raf = requestAnimationFrame(() => setShowCurrent(true))
+    const cleanup = setTimeout(() => setPreviousSrc(null), 280)
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(cleanup)
+    }
+  }, [currentSrc, targetSrc])
 
   return (
     <div className={className}>
@@ -71,7 +118,17 @@ export function SpriteAvatarCanvas({ gender, vibe, mode, audioLevel, className }
           animate={{ scale: mode === "speaking" ? [1, 1.012, 1] : [1, 1.008, 1] }}
           transition={{ duration: 2.4, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
         >
-          <Image src={src} alt="AI avatar" fill priority sizes="(max-width: 768px) 100vw, 50vw" className="object-cover" />
+          {previousSrc ? (
+            <Image src={previousSrc} alt="AI avatar previous frame" fill sizes="(max-width: 768px) 100vw, 50vw" className="object-cover opacity-100" />
+          ) : null}
+          <Image
+            src={currentSrc}
+            alt="AI avatar"
+            fill
+            priority
+            sizes="(max-width: 768px) 100vw, 50vw"
+            className={`object-cover transition-opacity duration-[240ms] ${showCurrent ? "opacity-100" : "opacity-0"}`}
+          />
         </motion.div>
 
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_60%_20%,rgba(56,189,248,0.18),transparent_42%),radial-gradient(circle_at_20%_80%,rgba(167,139,250,0.16),transparent_48%)]" />
