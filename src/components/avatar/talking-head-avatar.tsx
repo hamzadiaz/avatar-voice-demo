@@ -61,24 +61,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       () => ({
         pushAudioChunk: (resampledFloat32: Float32Array) => {
           if (!headRef.current || !isReady || !resampledFloat32?.length) return
-          // Start streaming mode on first chunk if not already streaming
-          if (!streamingRef.current) {
-            try {
-              // Use 'none' for lipsync since we drive visemes via HeadAudio worklet
-              // Keep AudioContext at default 48kHz (HeadAudio model needs it)
-              // Audio must be resampled to 48kHz before feeding
-              headRef.current.streamStart({ lipsyncType: "none" })
-              streamingRef.current = true
-              console.log("[TalkingHead] Stream started — audio playback active")
-              
-              // Connect HeadAudio for viseme-driven lip-sync from the audio
-              connectHeadAudio(headRef.current)
-            } catch (e) {
-              console.error("[TalkingHead] streamStart failed:", e)
-              return
-            }
-          }
-          // Feed resampled Float32 — TalkingHead converts to Int16 internally, plays + HeadAudio lip-syncs
+          // Streaming + HeadAudio already connected at init
           try {
             headRef.current.streamAudio({ audio: resampledFloat32 })
           } catch (e) {
@@ -274,10 +257,17 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           }
 
           headRef.current = instance
-          streamingRef.current = false
+
+          // Start streaming mode now so worklet connects to audioStreamGainNode
+          instance.streamStart({ lipsyncType: "none" })
+          streamingRef.current = true
+
+          // Connect HeadAudio to the stream audio path for lip-sync
+          await connectHeadAudio(instance)
+
           setIsReady(true)
           setStatus("ready")
-          console.log("[TalkingHead] ✅ Avatar loaded, lip-sync ready")
+          console.log("[TalkingHead] ✅ Avatar loaded, HeadAudio connected, lip-sync ready")
         } catch (error) {
           console.error("[TalkingHead] Failed:", error)
           setStatus("error")
