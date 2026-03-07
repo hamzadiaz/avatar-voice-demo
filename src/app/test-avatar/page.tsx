@@ -22,7 +22,7 @@ export default function TestAvatarPage() {
       <h1 className="text-2xl font-semibold text-zinc-100">Avatar Test Harness</h1>
 
       <div className="h-[460px] w-full rounded-2xl border border-zinc-700/50 bg-zinc-950/40 p-2">
-        <SpriteAvatarCanvas gender={gender} vibe={vibe} mode={mode} audioLevel={audioLevel} blinkSignal={blinkSignal} className="h-full w-full" />
+        <SpriteAvatarCanvas gender={gender} vibe={vibe} mode={mode} audioLevel={audioLevel} className="h-full w-full" />
       </div>
 
       <div className="flex flex-wrap gap-2">
