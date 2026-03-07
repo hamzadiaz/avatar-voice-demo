@@ -104,15 +104,40 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     languageCode,
     speechRate,
     speechPitch,
-    onAiAudioChunk: (chunk, sampleRate) => {
-      // Convert resampled Float32 back to PCM16 for TalkingHead (it expects PCM16 LE)
-      // chunk is already resampled to AudioContext.sampleRate (typically 48kHz)
-      const int16 = new Int16Array(chunk.length)
-      for (let i = 0; i < chunk.length; i++) {
-        const s = Math.max(-1, Math.min(1, chunk[i]))
-        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+    onAiAudioChunk: (_chunk, _sampleRate, rawPcm16) => {
+      // Feed raw 24kHz PCM16 directly — TalkingHead handles via streamAudio
+      // Apply speech rate by resampling
+      if (!rawPcm16) return
+      const head = talkingHeadRef.current?.getHead()
+      const contextRate = head?.audioCtx?.sampleRate || 48000
+      
+      // Convert PCM16 to Float32 for resampling
+      const int16 = new Int16Array(rawPcm16)
+      const float32 = new Float32Array(int16.length)
+      for (let i = 0; i < int16.length; i++) {
+        float32[i] = int16[i] / (int16[i] < 0 ? 0x8000 : 0x7fff)
       }
-      talkingHeadRef.current?.pushAudioChunk(chunk, sampleRate, int16.buffer)
+      
+      // Resample: adjust source rate by speechRate to control speed
+      const effectiveSourceRate = 24000 * speechRate
+      const ratio = effectiveSourceRate / contextRate
+      const outLen = Math.round(float32.length / ratio)
+      const resampled = new Float32Array(outLen)
+      for (let i = 0; i < outLen; i++) {
+        const srcIdx = i * ratio
+        const idx = Math.floor(srcIdx)
+        const frac = srcIdx - idx
+        resampled[i] = (float32[idx] ?? 0) * (1 - frac) + (float32[idx + 1] ?? 0) * frac
+      }
+      
+      // Convert back to PCM16
+      const outPcm = new Int16Array(resampled.length)
+      for (let i = 0; i < resampled.length; i++) {
+        const s = Math.max(-1, Math.min(1, resampled[i]))
+        outPcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+      }
+      
+      talkingHeadRef.current?.pushAudioChunk(new Float32Array(0), contextRate, outPcm.buffer)
     },
     onAiAudioInterrupted: () => {
       talkingHeadRef.current?.interrupt()

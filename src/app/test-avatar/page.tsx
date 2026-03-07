@@ -83,6 +83,7 @@ export default function TestAvatarPage() {
   const [speakText, setSpeakText] = useState("Hello! I am your AI avatar. Nice to meet you!")
   const [lastAction, setLastAction] = useState("Ready")
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [speechRate, setSpeechRate] = useState(1.0)
 
   const doAction = (label: string, fn: () => void) => {
     fn()
@@ -123,22 +124,28 @@ export default function TestAvatarPage() {
         bytes[i] = binaryStr.charCodeAt(i)
       }
 
-      // Gemini returns 24kHz PCM16 LE
+      // Gemini returns 24kHz PCM16 LE — send directly without resampling
+      // TalkingHead's playback worklet will handle the sample rate
       const pcm16 = new Int16Array(bytes.buffer)
-      const float32 = pcm16ToFloat32(pcm16)
 
-      // Resample to 48kHz (TalkingHead AudioContext rate)
-      const resampled = resampleAudio(float32, GEMINI_PCM_RATE, 48000)
+      // Get actual AudioContext sample rate from TalkingHead
+      const head = avatarRef.current?.getHead()
+      const contextRate = head?.audioCtx?.sampleRate || 48000
+
+      // Resample to match AudioContext rate, applying speech rate
+      // Higher speechRate = fewer samples = faster playback
+      const float32 = pcm16ToFloat32(pcm16)
+      const effectiveSourceRate = GEMINI_PCM_RATE * speechRate
+      const resampled = resampleAudio(float32, effectiveSourceRate, contextRate)
       const resampledPcm = float32ToPcm16(resampled)
 
-      // Feed to avatar for playback + lip-sync
-      // Split into chunks (100ms each at 48kHz = 4800 samples)
-      const chunkSize = 4800
+      // Feed to avatar — split into 100ms chunks
+      const chunkSize = Math.round(contextRate * 0.1)
       for (let i = 0; i < resampledPcm.length; i += chunkSize) {
         const chunk = resampledPcm.slice(i, i + chunkSize)
         avatarRef.current?.pushAudioChunk(
           new Float32Array(0),
-          48000,
+          contextRate,
           chunk.buffer
         )
       }
@@ -315,6 +322,12 @@ export default function TestAvatarPage() {
               </button>
             ))}
           </div>
+        </Section>
+
+        {/* Speech Rate */}
+        <Section title="⚡ Speech Rate">
+          <Slider min={0.5} max={2.0} step={0.1} value={[speechRate]} onValueChange={(v) => setSpeechRate(v[0] ?? 1.0)} />
+          <p className="mt-1 text-xs text-zinc-500">Rate: {speechRate.toFixed(1)}x {speechRate < 0.8 ? "(slow)" : speechRate > 1.3 ? "(fast)" : "(normal)"}</p>
         </Section>
 
         {/* Audio Level Sim */}
