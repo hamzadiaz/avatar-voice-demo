@@ -29,11 +29,19 @@ interface UseGeminiLiveOptions {
   speechPitch?: number
   onAiAudioChunk?: (chunk: Float32Array, sampleRate: number) => void
   onAiAudioInterrupted?: () => void
+  onMoodChange?: (mood: string) => void
+  onGesture?: (gesture: string) => void
+  onEmoji?: (emoji: string) => void
+  onLook?: (direction: string) => void
 }
 
 const GEMINI_INPUT_SAMPLE_RATE = 16000
 const GEMINI_OUTPUT_SAMPLE_RATE = 24000
 const VIBE_TAG_REGEX = /\[VIBE:(\w+)\]/gi
+const MOOD_TAG_REGEX = /\[MOOD:(\w+)\]/gi
+const GESTURE_TAG_REGEX = /\[GESTURE:(\w+)\]/gi
+const EMOJI_TAG_REGEX = /\[EMOJI:([^\]]+)\]/gi
+const LOOK_TAG_REGEX = /\[LOOK:(\w+)\]/gi
 
 export function useGeminiLive({
   voiceName,
@@ -43,6 +51,10 @@ export function useGeminiLive({
   speechPitch = 0,
   onAiAudioChunk,
   onAiAudioInterrupted,
+  onMoodChange,
+  onGesture,
+  onEmoji,
+  onLook,
 }: UseGeminiLiveOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle")
   const [userAudioLevel, setUserAudioLevel] = useState(0)
@@ -147,14 +159,37 @@ export function useGeminiLive({
   }, [])
 
   const parseVibeAndCleanText = useCallback((text: string) => {
-    const matches = [...text.matchAll(VIBE_TAG_REGEX)]
-    for (const match of matches) {
+    // Parse VIBE tags
+    for (const match of text.matchAll(VIBE_TAG_REGEX)) {
       const vibe = match[1]
       const normalized = VIBE_TYPES.find((item) => item.toLowerCase() === vibe.toLowerCase())
       if (normalized) setAiVibe(normalized)
     }
-    return text.replace(VIBE_TAG_REGEX, "").replace(/\s+/g, " ").trim()
-  }, [])
+    // Parse MOOD tags
+    for (const match of text.matchAll(MOOD_TAG_REGEX)) {
+      onMoodChange?.(match[1].toLowerCase())
+    }
+    // Parse GESTURE tags
+    for (const match of text.matchAll(GESTURE_TAG_REGEX)) {
+      onGesture?.(match[1].toLowerCase())
+    }
+    // Parse EMOJI tags
+    for (const match of text.matchAll(EMOJI_TAG_REGEX)) {
+      onEmoji?.(match[1])
+    }
+    // Parse LOOK tags
+    for (const match of text.matchAll(LOOK_TAG_REGEX)) {
+      onLook?.(match[1].toLowerCase())
+    }
+    return text
+      .replace(VIBE_TAG_REGEX, "")
+      .replace(MOOD_TAG_REGEX, "")
+      .replace(GESTURE_TAG_REGEX, "")
+      .replace(EMOJI_TAG_REGEX, "")
+      .replace(LOOK_TAG_REGEX, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  }, [onMoodChange, onGesture, onEmoji, onLook])
 
   const disconnect = useCallback(() => {
     if (animationFrameRef.current) {

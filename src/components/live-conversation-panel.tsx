@@ -110,6 +110,22 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     onAiAudioInterrupted: () => {
       talkingHeadRef.current?.interrupt()
     },
+    onMoodChange: (mood) => {
+      talkingHeadRef.current?.setMood(mood)
+    },
+    onGesture: (gesture) => {
+      talkingHeadRef.current?.playGesture(gesture, 4, false)
+    },
+    onEmoji: (emoji) => {
+      talkingHeadRef.current?.speakEmoji(emoji)
+    },
+    onLook: (direction) => {
+      if (direction === "camera") {
+        talkingHeadRef.current?.lookAtCamera(4000)
+      } else {
+        talkingHeadRef.current?.lookAhead(3000)
+      }
+    },
   })
 
   const isConnected = connectionState === "connected"
