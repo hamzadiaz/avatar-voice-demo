@@ -246,7 +246,8 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
             lightDirectIntensity: 26,
             lightSpotIntensity: 0,
             avatarMood: VIBE_TO_MOOD[vibe],
-            avatarMute: false, // TalkingHead handles audio playback + lip-sync
+            avatarMute: false,
+            ttsEndpoint: "about:blank", // Disable built-in Google TTS (we use Gemini TTS)
             avatarIdleEyeContact: 0.35,
             avatarIdleHeadMove: 0.5,
             avatarSpeakingEyeContact: 0.65,
