@@ -87,9 +87,9 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
                 streamingRef.current = true
               }
 
-              // 3) Ensure HeadAudio connected for lip-sync detection
+              // 3) Set up inline analyser-based lip-sync (no HeadAudio dependency)
               if (!headAudioReadyRef.current) {
-                await connectHeadAudio(head)
+                setupAnalyserLipSync(head)
               }
 
               // 4) Flush all queued audio chunks in order
@@ -175,70 +175,86 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
       [isReady]
     )
 
-    // Connect HeadAudio worklet for audio-driven lip-sync
-    const connectHeadAudio = async (head: TalkingHeadInstance) => {
+    // Inline analyser-based lip-sync — zero external dependencies
+    // Uses a simple AnalyserNode on TalkingHead's audio output to drive mouth visemes
+    const setupAnalyserLipSync = (head: TalkingHeadInstance) => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let HeadAudioNode = (window as any).HeadAudioNode
-        if (!HeadAudioNode) {
-          await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error("HeadAudio timeout")), 10000)
-            window.addEventListener("headaudio-ready", () => { clearTimeout(timeout); resolve() }, { once: true })
-          })
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          HeadAudioNode = (window as any).HeadAudioNode
-        }
-        if (!HeadAudioNode) { console.error("[HeadAudio] Module not loaded"); return }
-
-        // TalkingHead exposes its AudioContext and speech gain node
         const audioCtx = head.audioCtx
-        if (!audioCtx) { console.error("[HeadAudio] No AudioContext on TalkingHead"); return }
+        if (!audioCtx) { console.error("[LipSync] No AudioContext"); return }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const workletUrl = (window as any).__headAudioWorkletUrl
-        await audioCtx.audioWorklet.addModule(workletUrl)
+        const analyser = audioCtx.createAnalyser()
+        analyser.fftSize = 256
+        analyser.smoothingTimeConstant = 0.4
 
-        const headAudio = new HeadAudioNode(audioCtx, {
-          parameterData: { vadGateActiveDb: -40, vadGateInactiveDb: -60 },
-        })
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const modelUrl = (window as any).__headAudioModelUrl
-        await headAudio.loadModel(modelUrl)
-
-        // Connect HeadAudio to audioReverbNode — this is the final mix node before destination
-        // Both speech (audioSpeechGainNode) and streaming (audioStreamGainNode) converge here
-        // Direct audioStreamGainNode connection doesn't reliably route to HeadAudio worklets
+        // Connect analyser to TalkingHead's audio output chain
         const sourceNode = head.audioReverbNode || head.audioStreamGainNode || head.audioSpeechGainNode
-        if (sourceNode) {
-          sourceNode.connect(headAudio)
-          console.log("[HeadAudio] Connected to:", head.audioReverbNode ? "audioReverbNode" : head.audioStreamGainNode ? "audioStreamGainNode" : "audioSpeechGainNode")
-        } else {
-          console.error("[HeadAudio] No audio node found to connect to")
-          return
+        if (!sourceNode) { console.error("[LipSync] No audio source node"); return }
+        sourceNode.connect(analyser)
+
+        const freqData = new Uint8Array(analyser.frequencyBinCount)
+
+        // Viseme morph target keys (RPM/VRM standard)
+        const VISEME_AA = "viseme_aa"
+        const VISEME_O = "viseme_O"
+        const VISEME_E = "viseme_E"
+        const VISEME_I = "viseme_I"
+        const VISEME_U = "viseme_U"
+
+        // Smoothing state
+        let smoothAA = 0
+        let smoothO = 0
+        let smoothE = 0
+        const ATTACK = 0.55  // How fast mouth opens (higher = faster)
+        const RELEASE = 0.25 // How fast mouth closes (lower = slower, more natural)
+
+        // Drive visemes from frequency bands in animation loop
+        head.opt.update = () => {
+          analyser.getByteFrequencyData(freqData)
+
+          // Compute energy in speech-relevant frequency bands (100Hz-4kHz)
+          // At 48kHz with 128 bins: each bin ≈ 187.5Hz
+          // Band 1 (low vowels, ~100-800Hz): bins 1-4 → drives AA
+          // Band 2 (mid vowels, ~800-2kHz): bins 4-10 → drives O/E
+          // Band 3 (high freq, ~2k-4kHz): bins 10-22 → drives I/U (less weight)
+          let lowSum = 0, midSum = 0, highSum = 0
+          for (let i = 1; i <= 4; i++) lowSum += freqData[i]
+          for (let i = 4; i <= 10; i++) midSum += freqData[i]
+          for (let i = 10; i <= 22; i++) highSum += freqData[i]
+
+          const lowEnergy = (lowSum / 4) / 255
+          const midEnergy = (midSum / 7) / 255
+          const highEnergy = (highSum / 13) / 255
+
+          // Map energy to viseme targets with natural-looking scaling
+          const targetAA = Math.min(1, lowEnergy * 1.8)
+          const targetO = Math.min(1, midEnergy * 1.3)
+          const targetE = Math.min(1, highEnergy * 0.9)
+
+          // Asymmetric smoothing: fast attack, slow release
+          const lerpAA = targetAA > smoothAA ? ATTACK : RELEASE
+          const lerpO = targetO > smoothO ? ATTACK : RELEASE
+          const lerpE = targetE > smoothE ? ATTACK : RELEASE
+
+          smoothAA += (targetAA - smoothAA) * lerpAA
+          smoothO += (targetO - smoothO) * lerpO
+          smoothE += (targetE - smoothE) * lerpE
+
+          // Apply to morph targets
+          const mt = head.mtAvatar
+          if (mt) {
+            if (mt[VISEME_AA]) Object.assign(mt[VISEME_AA], { newvalue: smoothAA, needsUpdate: true })
+            if (mt[VISEME_O]) Object.assign(mt[VISEME_O], { newvalue: smoothO * 0.6, needsUpdate: true })
+            if (mt[VISEME_E]) Object.assign(mt[VISEME_E], { newvalue: smoothE * 0.4, needsUpdate: true })
+            if (mt[VISEME_I]) Object.assign(mt[VISEME_I], { newvalue: smoothE * 0.3, needsUpdate: true })
+            if (mt[VISEME_U]) Object.assign(mt[VISEME_U], { newvalue: smoothO * 0.3, needsUpdate: true })
+          }
         }
-
-        // Smooth viseme values to prevent jittery lip movement
-        const smoothedValues: Record<string, number> = {}
-        const SMOOTHING = 0.35 // 0 = no smoothing, 1 = frozen. 0.35 = natural human-like
-
-        headAudio.onvalue = (key: string, value: number) => {
-          if (!head.mtAvatar?.[key]) return
-          // Exponential smoothing: lerp between current and target
-          const prev = smoothedValues[key] ?? 0
-          const smoothed = prev + (value - prev) * (1 - SMOOTHING)
-          smoothedValues[key] = smoothed
-          Object.assign(head.mtAvatar[key], { newvalue: smoothed, needsUpdate: true })
-        }
-
-        // Link update to animation loop
-        head.opt.update = headAudio.update.bind(headAudio)
 
         headAudioReadyRef.current = true
-        console.log("[HeadAudio] ✅ Connected — audio-driven lip-sync active")
+        console.log("[LipSync] ✅ Inline analyser lip-sync active — connected to:", head.audioReverbNode ? "audioReverbNode" : "audioStreamGainNode")
       } catch (err) {
         headAudioReadyRef.current = false
-        console.error("[HeadAudio] Failed:", err)
+        console.error("[LipSync] Failed:", err)
       }
     }
 

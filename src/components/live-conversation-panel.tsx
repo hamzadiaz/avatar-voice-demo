@@ -105,21 +105,8 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     speechRate,
     speechPitch,
     onAiAudioChunk: (resampledFloat32) => {
-      // Match test-avatar behavior: feed stable 100ms chunks with conservative gain
-      // to avoid over-open mouth in live stream path.
-      const LIVE_GAIN = 0.62
-      const CHUNK_SIZE = 4800 // 100ms at 48kHz
-
-      const shaped = new Float32Array(resampledFloat32.length)
-      for (let i = 0; i < resampledFloat32.length; i++) {
-        const v = resampledFloat32[i] * LIVE_GAIN
-        shaped[i] = Math.max(-0.92, Math.min(0.92, v))
-      }
-
-      for (let i = 0; i < shaped.length; i += CHUNK_SIZE) {
-        const chunk = shaped.slice(i, i + CHUNK_SIZE)
-        talkingHeadRef.current?.pushAudioChunk(chunk)
-      }
+      // Feed audio directly — inline analyser handles lip-sync from audio output
+      talkingHeadRef.current?.pushAudioChunk(resampledFloat32)
     },
     onAiAudioInterrupted: () => {
       talkingHeadRef.current?.interrupt()
