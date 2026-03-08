@@ -238,8 +238,13 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         const smoothedValues: Record<string, number> = {}
         const SMOOTHING = 0.35 // 0 = no smoothing, 1 = frozen. 0.35 = natural human-like
 
+        let visemeCallCount = 0
         headAudio.onvalue = (key: string, value: number) => {
           if (!head.mtAvatar?.[key]) return
+          visemeCallCount++
+          if (visemeCallCount <= 5 || visemeCallCount % 50 === 0) {
+            console.log(`[HeadAudio] viseme: ${key}=${value.toFixed(3)} (call #${visemeCallCount})`)
+          }
           // Exponential smoothing: lerp between current and target
           const prev = smoothedValues[key] ?? 0
           const smoothed = prev + (value - prev) * (1 - SMOOTHING)
@@ -247,8 +252,18 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           Object.assign(head.mtAvatar[key], { newvalue: smoothed, needsUpdate: true })
         }
 
+        // Log HeadAudio events for debugging
+        headAudio.onstarted = () => console.log("[HeadAudio] 🎤 Speech detected — visemes starting")
+        headAudio.onended = () => console.log("[HeadAudio] 🔇 Speech ended — total viseme calls:", visemeCallCount)
+
         // Link update to animation loop
         head.opt.update = headAudio.update.bind(headAudio)
+
+        // Expose for debugging
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(window as any).__headAudioNode = headAudio
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(window as any).__talkingHead = head
 
         headAudioReadyRef.current = true
         console.log("[HeadAudio] ✅ Connected — audio-driven lip-sync active")
