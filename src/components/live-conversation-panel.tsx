@@ -120,6 +120,7 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
     clearTranscript,
     aiAudioLevel,
     userAudioLevel,
+    micAvailable,
   } = useGeminiLive({
     voiceName: voice,
     systemInstruction: dynamicInstruction,
@@ -303,6 +304,14 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {!micAvailable && isConnected && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 3l9.5 16.5H2.5L12 3z" />
+              </svg>
+              No microphone detected — use the text input below to chat
+            </div>
+          )}
           <div ref={captureRef} className="space-y-3 rounded-2xl border border-cyan-500/20 bg-zinc-950/80 p-2">
             <div className="relative flex min-h-[290px] items-center justify-center overflow-hidden rounded-2xl border border-zinc-800 bg-transparent sm:min-h-[360px]">
               <TalkingHeadAvatar

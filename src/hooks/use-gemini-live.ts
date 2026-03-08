@@ -66,6 +66,7 @@ export function useGeminiLive({
   const [aiProsody, setAiProsody] = useState<ProsodyData>({ energy: 0, brightness: 0.5 })
   const [aiVibe, setAiVibe] = useState<VibeType>("Neutral")
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([])
+  const [micAvailable, setMicAvailable] = useState(true)
 
   const wsRef = useRef<WebSocket | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -291,6 +292,7 @@ export function useGeminiLive({
         micGain.connect(workletNode)
       } catch (micErr) {
         console.warn("[GeminiLive] No microphone available — text-only mode:", micErr)
+        setMicAvailable(false)
       }
 
       const aiAnalyser = audioContext.createAnalyser()
@@ -543,6 +545,7 @@ export function useGeminiLive({
     disconnect,
     clearTranscript,
     sendTextPrompt,
+    micAvailable,
     /** Expose for HeadAudio lip-sync connection */
     audioContextRef,
     aiSpeechGainRef,
