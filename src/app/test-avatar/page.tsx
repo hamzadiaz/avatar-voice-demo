@@ -82,6 +82,8 @@ export default function TestAvatarPage() {
 
   const handleSpeak = useCallback(async () => {
     if (!speakText.trim() || isSpeaking) return
+    // Resume AudioContext IMMEDIATELY during click gesture — before any async work
+    avatarRef.current?.resumeAudio()
     setIsSpeaking(true)
     setLastAction("Speaking...")
 

@@ -215,6 +215,8 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
   }, [disconnect, isConnected, sendTextPrompt, textPrompt, toggle])
 
   const handleMicToggle = () => {
+    // Resume AudioContext during user gesture — before any async work
+    talkingHeadRef.current?.resumeAudio()
     playMicClick()
     toggle()
   }
@@ -222,6 +224,8 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
   // Test button: same batch TTS path as test-avatar page
   const handleTestSpeak = async () => {
     if (isTesting || !talkingHeadRef.current) return
+    // Resume AudioContext IMMEDIATELY during click gesture
+    talkingHeadRef.current.resumeAudio()
     setIsTesting(true)
     try {
       const res = await fetch("/api/tts", {

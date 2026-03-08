@@ -13,6 +13,8 @@ interface TalkingHeadAvatarProps {
 }
 
 export interface TalkingHeadAvatarHandle {
+  /** Call SYNCHRONOUSLY during click handler to unlock AudioContext */
+  resumeAudio: () => void
   /** Feed resampled Float32 audio at AudioContext rate (48kHz) */
   pushAudioChunk: (resampledFloat32: Float32Array) => void
   interrupt: () => void
@@ -62,6 +64,18 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
     useImperativeHandle(
       ref,
       () => ({
+        // Call this SYNCHRONOUSLY during click handler, before any async work
+        // Browsers require AudioContext.resume() in the direct gesture call stack
+        resumeAudio: () => {
+          const head = headRef.current
+          if (!head?.audioCtx) return
+          if (head.audioCtx.state === "suspended") {
+            head.audioCtx.resume().then(() => {
+              console.log("[TalkingHead] AudioContext resumed via user gesture")
+            })
+          }
+        },
+
         pushAudioChunk: (resampledFloat32: Float32Array) => {
           if (!headRef.current || !isReady || !resampledFloat32?.length) return
 
@@ -75,16 +89,18 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
             if (!head) { processingQueueRef.current = false; return }
 
             try {
-              // 1) Resume AudioContext after user gesture-triggered call
+              // 1) Ensure AudioContext is running (should already be from resumeAudio)
               const ctx = head.audioCtx
               if (ctx?.state === "suspended") {
+                console.warn("[TalkingHead] AudioContext still suspended — resuming (may fail without gesture)")
                 await ctx.resume()
               }
 
-              // 2) Ensure stream mode active
+              // 2) Ensure stream mode active — MUST await to prevent race with HeadAudio
               if (!streamingRef.current) {
-                head.streamStart({ lipsyncType: "none" })
+                await head.streamStart({ lipsyncType: "none" })
                 streamingRef.current = true
+                console.log("[TalkingHead] streamStart complete")
               }
 
               // 3) Ensure HeadAudio connected for lip-sync detection
