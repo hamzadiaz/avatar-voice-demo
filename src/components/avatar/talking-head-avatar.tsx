@@ -244,9 +244,9 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         let isSpeechActive = false
 
         // Smooth attack/release for natural lip movement
-        const ATTACK = 0.45   // how fast mouth opens (0-1, higher = faster)
-        const RELEASE = 0.15  // how fast mouth closes (0-1, lower = slower/smoother)
-        const SCALE = 0.7     // scale down HeadAudio values (prevents over-opening)
+        const ATTACK = 0.55   // how fast mouth opens (0-1, higher = faster)
+        const RELEASE = 0.35  // how fast mouth closes — was 0.15 (too sluggish between phonemes)
+        const SCALE = 0.85    // amplitude — was 0.7 (slightly more expressive)
 
         headAudio.onvalue = (key: string, value: number) => {
           if (!head.mtAvatar?.[key]) return
@@ -281,7 +281,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
             let anyActive = false
             for (const key of [...activeVisemes]) {
               const cur = currentValues[key] ?? 0
-              const next = cur * 0.7 // exponential decay
+              const next = cur * 0.5 // faster decay so mouth closes cleanly
               if (next < 0.003) {
                 currentValues[key] = 0
                 activeVisemes.delete(key)
