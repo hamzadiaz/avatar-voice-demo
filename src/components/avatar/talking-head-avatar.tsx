@@ -225,25 +225,27 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         const modelUrl = (window as any).__headAudioModelUrl
         await headAudio.loadModel(modelUrl)
 
-        // 4. Connect stream gain node to HeadAudio for viseme analysis
-        // Audio graph: streamWorkletNode → audioStreamGainNode → [DelayNode] → audioReverbNode → destination
-        //                                       ↓
-        //                                   HeadAudio (analysis only, no output)
+        // 4. Rewire audio graph with DelayNode for lip-sync timing compensation
+        // Before: streamGainNode → reverbNode → destination
+        // After:  streamGainNode → delayNode → reverbNode → destination
+        //                        ↘ headAudio (analysis only, no output)
         const streamGain = head.audioStreamGainNode
         if (!streamGain) {
           console.error("[HeadAudio] No audioStreamGainNode found")
           return
         }
-        streamGain.connect(headAudio)
 
-        // 5. Add DelayNode (100ms) to compensate for HeadAudio's processing latency
-        // This makes lip movement appear synchronized with the audio output
-        // Official recommendation: "add delay between gain and reverb nodes"
+        // Disconnect ALL outputs first to prevent double audio
+        streamGain.disconnect()
+
+        // Add 100ms delay to compensate for HeadAudio's processing latency
         const delayNode = new DelayNode(audioCtx, { delayTime: 0.1 })
-        streamGain.disconnect(head.audioReverbNode)
         streamGain.connect(delayNode)
         delayNode.connect(head.audioReverbNode)
-        console.log("[HeadAudio] DelayNode (100ms) inserted for lip-sync compensation")
+
+        // Connect HeadAudio for viseme analysis (no audio output)
+        streamGain.connect(headAudio)
+        console.log("[HeadAudio] Audio graph rewired: streamGain → delay(100ms) → reverb + streamGain → headAudio")
 
         // 6. Register onvalue callback — EXACTLY as official docs specify
         // HeadAudio.update() handles ALL smoothing (sigmoid easing, alpha ramp, viseme maxes)
