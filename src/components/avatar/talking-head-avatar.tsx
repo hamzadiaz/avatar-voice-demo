@@ -225,41 +225,27 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         const modelUrl = (window as any).__headAudioModelUrl
         await headAudio.loadModel(modelUrl)
 
-        // 4. Rewire audio graph with DelayNode for lip-sync timing compensation
-        // Before: streamGainNode → reverbNode → destination
-        // After:  streamGainNode → delayNode → reverbNode → destination
-        //                        ↘ headAudio (analysis only, no output)
+        // 4. Connect HeadAudio to the audio graph for viseme analysis
+        // SIMPLE approach: just tap into audioStreamGainNode — no rewiring, no DelayNode
+        // HeadAudio has zero outputs so it won't create any extra audio path
+        // The existing graph stays untouched:
+        //   streamWorkletNode → audioStreamGainNode → audioReverbNode → destination
+        //   streamWorkletNode → audioAnalyzerNode → audioSpeechGainNode → audioReverbNode → destination
+        //
+        // IMPORTANT: Mute the second path (analyzer → speech) to prevent double audio
+        // This path exists for TalkingHead's built-in speakText(), not for streaming
+        if (head.audioSpeechGainNode) {
+          head.audioSpeechGainNode.gain.value = 0
+          console.log("[HeadAudio] Muted audioSpeechGainNode to prevent double audio")
+        }
+
         const streamGain = head.audioStreamGainNode
         if (!streamGain) {
           console.error("[HeadAudio] No audioStreamGainNode found")
           return
         }
-
-        // TalkingHead's stream audio has TWO paths to destination:
-        // 1. streamWorkletNode → audioStreamGainNode → audioReverbNode → destination
-        // 2. streamWorkletNode → audioAnalyzerNode → audioSpeechGainNode → audioReverbNode → destination
-        // We must handle both to avoid double audio.
-
-        // Disconnect streamGainNode outputs and rewire with delay
-        streamGain.disconnect()
-        const delayNode = new DelayNode(audioCtx, { delayTime: 0.1 })
-        streamGain.connect(delayNode)
-        delayNode.connect(head.audioReverbNode)
-
-        // Disconnect analyzerNode → speechGainNode to kill the second audio path
-        // (analyzer is only used for volume metering, not needed for playback)
-        if (head.audioAnalyzerNode && head.audioSpeechGainNode) {
-          try {
-            head.audioAnalyzerNode.disconnect(head.audioSpeechGainNode)
-            console.log("[HeadAudio] Disconnected analyzerNode → speechGainNode (prevents double audio)")
-          } catch {
-            // Already disconnected
-          }
-        }
-
-        // Connect HeadAudio for viseme analysis (no audio output)
         streamGain.connect(headAudio)
-        console.log("[HeadAudio] Audio graph: streamGain → delay(100ms) → reverb → dest + streamGain → headAudio")
+        console.log("[HeadAudio] Connected: streamGainNode → headAudio (analysis only)")
 
         // 6. Register onvalue callback — EXACTLY as official docs specify
         // HeadAudio.update() handles ALL smoothing (sigmoid easing, alpha ramp, viseme maxes)
