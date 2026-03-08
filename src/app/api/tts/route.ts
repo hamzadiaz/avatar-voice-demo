@@ -25,11 +25,11 @@ export async function POST(request: NextRequest) {
   const payload = {
     contents: [{ parts: [{ text }] }],
     generationConfig: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName,
+      response_modalities: ["AUDIO"],
+      speech_config: {
+        voice_config: {
+          prebuilt_voice_config: {
+            voice_name: voiceName,
           },
         },
       },

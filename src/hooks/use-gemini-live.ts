@@ -298,18 +298,18 @@ export function useGeminiLive({
           setup: {
             model: liveModel,
             generationConfig: {
-              responseModalities: ["AUDIO"],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: {
-                    voiceName,
+              response_modalities: ["AUDIO"],
+              speech_config: {
+                voice_config: {
+                  prebuilt_voice_config: {
+                    voice_name: voiceName,
                   },
                 },
-                languageCode,
+                language_code: languageCode,
               },
             },
-            inputAudioTranscription: {},
-            outputAudioTranscription: {},
+            input_audio_transcription: {},
+            output_audio_transcription: {},
           },
         }
 
