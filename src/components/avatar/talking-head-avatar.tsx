@@ -240,34 +240,67 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
 
         let visemeCallCount = 0
         const activeVisemes = new Set<string>()
+        const currentValues: Record<string, number> = {}
+        let isSpeechActive = false
+
+        // Smooth attack/release for natural lip movement
+        const ATTACK = 0.45   // how fast mouth opens (0-1, higher = faster)
+        const RELEASE = 0.15  // how fast mouth closes (0-1, lower = slower/smoother)
+        const SCALE = 0.7     // scale down HeadAudio values (prevents over-opening)
 
         headAudio.onvalue = (key: string, value: number) => {
           if (!head.mtAvatar?.[key]) return
           visemeCallCount++
-          if (visemeCallCount <= 3 || visemeCallCount % 100 === 0) {
-            console.log(`[HeadAudio] viseme: ${key}=${value.toFixed(3)} (call #${visemeCallCount})`)
-          }
-          // No smoothing — let TalkingHead's own easing handle transitions
-          // Use 'realtime' for high priority in morph target system
-          if (value > 0.005) {
+
+          const scaledValue = value * SCALE
+          const prev = currentValues[key] ?? 0
+          // Asymmetric smoothing: fast attack, slow release
+          const alpha = scaledValue > prev ? ATTACK : RELEASE
+          const smoothed = prev + (scaledValue - prev) * alpha
+          currentValues[key] = smoothed
+
+          if (smoothed > 0.003) {
             activeVisemes.add(key)
-            Object.assign(head.mtAvatar[key], { realtime: value, needsUpdate: true })
+            Object.assign(head.mtAvatar[key], { realtime: smoothed, needsUpdate: true })
           } else {
+            currentValues[key] = 0
             activeVisemes.delete(key)
             Object.assign(head.mtAvatar[key], { realtime: null, needsUpdate: true })
           }
         }
 
-        headAudio.onstarted = () => console.log("[HeadAudio] 🎤 Speech detected")
+        headAudio.onstarted = () => {
+          isSpeechActive = true
+          console.log("[HeadAudio] 🎤 Speech detected")
+        }
         headAudio.onended = () => {
+          isSpeechActive = false
           console.log("[HeadAudio] 🔇 Speech ended — viseme calls:", visemeCallCount)
-          // Reset ALL active visemes so mouth closes
-          for (const key of activeVisemes) {
-            if (head.mtAvatar?.[key]) {
-              Object.assign(head.mtAvatar[key], { realtime: null, needsUpdate: true })
+          // Gradually decay all active visemes (don't snap to 0)
+          const decayVisemes = () => {
+            let anyActive = false
+            for (const key of [...activeVisemes]) {
+              const cur = currentValues[key] ?? 0
+              const next = cur * 0.7 // exponential decay
+              if (next < 0.003) {
+                currentValues[key] = 0
+                activeVisemes.delete(key)
+                if (head.mtAvatar?.[key]) {
+                  Object.assign(head.mtAvatar[key], { realtime: null, needsUpdate: true })
+                }
+              } else {
+                currentValues[key] = next
+                anyActive = true
+                if (head.mtAvatar?.[key]) {
+                  Object.assign(head.mtAvatar[key], { realtime: next, needsUpdate: true })
+                }
+              }
+            }
+            if (anyActive && !isSpeechActive) {
+              requestAnimationFrame(decayVisemes)
             }
           }
-          activeVisemes.clear()
+          requestAnimationFrame(decayVisemes)
         }
 
         // Link update to animation loop
