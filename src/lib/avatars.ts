@@ -10,8 +10,26 @@ export interface AvatarOption {
 
 export const AVATARS: AvatarOption[] = [
   {
-    id: "brunette",
+    id: "julia-black",
     name: "Julia",
+    gender: "female",
+    url: "/avatars-3d/female_black.glb",
+    body: "F",
+    description: "Black AgentJara tee",
+    source: "AgentJara",
+  },
+  {
+    id: "julia-white",
+    name: "Julia",
+    gender: "female",
+    url: "/avatars-3d/female_white.glb",
+    body: "F",
+    description: "White AgentJara tee",
+    source: "AgentJara",
+  },
+  {
+    id: "brunette",
+    name: "Julia (Original)",
     gender: "female",
     url: "/avatars-3d/female.glb",
     body: "F",
@@ -38,7 +56,7 @@ export const AVATARS: AvatarOption[] = [
   },
 ]
 
-export const DEFAULT_AVATAR_ID = "brunette"
+export const DEFAULT_AVATAR_ID = "julia-black"
 
 export function getAvatar(id: string): AvatarOption {
   return AVATARS.find((a) => a.id === id) ?? AVATARS[0]
