@@ -374,6 +374,7 @@ export function useGeminiLive({
               const float32 = pcm16ToFloat32(new Int16Array(pcmBuffer))
               const outputSampleRate = audioContextRef.current?.sampleRate || 48000
               const resampled = resampleAudio(float32, GEMINI_OUTPUT_SAMPLE_RATE, outputSampleRate)
+              console.log(`[GeminiLive] Audio chunk: externalAudioPlayback=${externalAudioPlayback}, samples=${resampled.length}`)
               if (!externalAudioPlayback) {
                 queueAudio(resampled)
               } else {

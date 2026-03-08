@@ -78,6 +78,13 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
 
         pushAudioChunk: (resampledFloat32: Float32Array) => {
           if (!headRef.current || !isReady || !resampledFloat32?.length) return
+          // Debug: track chunk count to detect double-feeding
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const w = window as any
+          w.__audioChunkCount = (w.__audioChunkCount || 0) + 1
+          if (w.__audioChunkCount <= 3 || w.__audioChunkCount % 20 === 0) {
+            console.log(`[Audio] pushAudioChunk #${w.__audioChunkCount}, samples=${resampledFloat32.length}`)
+          }
 
           // Queue incoming chunks to preserve order during async init
           pendingAudioChunksRef.current.push(resampledFloat32)
