@@ -260,35 +260,42 @@ export function useGeminiLive({
       await audioContext.audioWorklet.addModule(workletUrl)
       URL.revokeObjectURL(workletUrl)
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      })
-      mediaStreamRef.current = stream
+      // Mic is optional — device may not have one (e.g. Mac mini)
+      let hasMic = false
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        })
+        mediaStreamRef.current = stream
+        hasMic = true
 
-      const source = audioContext.createMediaStreamSource(stream)
+        const source = audioContext.createMediaStreamSource(stream)
 
-      // Mic gain node — muted (0) when AI is speaking to prevent echo/feedback
-      const micGain = audioContext.createGain()
-      micGain.gain.value = 1
-      micGainNodeRef.current = micGain
-      source.connect(micGain)
+        // Mic gain node — muted (0) when AI is speaking to prevent echo/feedback
+        const micGain = audioContext.createGain()
+        micGain.gain.value = 1
+        micGainNodeRef.current = micGain
+        source.connect(micGain)
 
-      const userAnalyser = audioContext.createAnalyser()
-      userAnalyser.fftSize = 256
-      userAnalyserRef.current = userAnalyser
-      micGain.connect(userAnalyser)
+        const userAnalyser = audioContext.createAnalyser()
+        userAnalyser.fftSize = 256
+        userAnalyserRef.current = userAnalyser
+        micGain.connect(userAnalyser)
+
+        const workletNode = new AudioWorkletNode(audioContext, "pcm-processor")
+        workletNodeRef.current = workletNode
+        micGain.connect(workletNode)
+      } catch (micErr) {
+        console.warn("[GeminiLive] No microphone available — text-only mode:", micErr)
+      }
 
       const aiAnalyser = audioContext.createAnalyser()
       aiAnalyser.fftSize = 256
       aiAnalyserRef.current = aiAnalyser
-
-      const workletNode = new AudioWorkletNode(audioContext, "pcm-processor")
-      workletNodeRef.current = workletNode
-      micGain.connect(workletNode)
 
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
@@ -436,7 +443,11 @@ export function useGeminiLive({
         }
       }
 
-      workletNode.port.onmessage = (event) => {
+      if (!workletNodeRef.current) {
+        console.warn("[GeminiLive] No mic worklet — voice input disabled, use text")
+      }
+
+      if (workletNodeRef.current) workletNodeRef.current.port.onmessage = (event) => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
 
         const float32 = event.data.audioData as Float32Array
