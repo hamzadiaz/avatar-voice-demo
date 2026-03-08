@@ -2,10 +2,13 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 
+import { getAvatar } from "@/lib/avatars"
+
 type VibeType = "Neutral" | "Joyful" | "Excited" | "Chill" | "Serious" | "Empathetic"
 
 interface TalkingHeadAvatarProps {
   gender: "male" | "female"
+  avatarId?: string
   vibe?: VibeType
   mode?: string
   audioLevel?: number
@@ -37,8 +40,7 @@ export interface TalkingHeadAvatarHandle {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TalkingHeadInstance = any
 
-const FEMALE_AVATAR_URL = "/avatars-3d/female.glb"
-const MALE_AVATAR_URL = "/avatars-3d/male.glb"
+// Avatar URLs now come from avatars.ts catalog
 
 const VIBE_TO_MOOD: Record<VibeType, string> = {
   Neutral: "neutral",
@@ -50,7 +52,8 @@ const VIBE_TO_MOOD: Record<VibeType, string> = {
 }
 
 export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHeadAvatarProps>(
-  function TalkingHeadAvatar({ gender, vibe = "Neutral", audioLevel = 0, className }, ref) {
+  function TalkingHeadAvatar({ gender, avatarId, vibe = "Neutral", audioLevel = 0, className }, ref) {
+    const avatar = getAvatar(avatarId ?? (gender === "male" ? "avatarsdk" : "brunette"))
     const containerRef = useRef<HTMLDivElement | null>(null)
     const headRef = useRef<TalkingHeadInstance | null>(null)
     const streamingRef = useRef(false)
@@ -348,11 +351,9 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
             pcmSampleRate: 24000, // Gemini outputs 24kHz PCM
           })
 
-          const avatarUrl = gender === "female" ? FEMALE_AVATAR_URL : MALE_AVATAR_URL
-
           await instance.showAvatar({
-            url: avatarUrl,
-            body: gender === "female" ? "F" : "M",
+            url: avatar.url,
+            body: avatar.body,
             lipsyncLang: "en",
             avatarMood: VIBE_TO_MOOD[vibe],
           })
@@ -395,7 +396,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           headRef.current = null
         }
       }
-    }, [gender]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [avatar.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
       if (!headRef.current || !isReady) return

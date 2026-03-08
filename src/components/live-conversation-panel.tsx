@@ -20,6 +20,7 @@ import { useGeminiLive } from "@/hooks/use-gemini-live"
 interface LiveConversationPanelProps {
   voice: GeminiVoiceName
   gender: VoiceGender
+  avatarId?: string
   languageCode: string
   mirroring: number
 }
@@ -97,7 +98,7 @@ function resamplePcm16ToFloat32(pcm16: Int16Array, fromRate: number, toRate: num
   return out
 }
 
-export function LiveConversationPanel({ voice, gender, languageCode, mirroring }: LiveConversationPanelProps) {
+export function LiveConversationPanel({ voice, gender, avatarId, languageCode, mirroring }: LiveConversationPanelProps) {
   const [textPrompt, setTextPrompt] = useState("")
   const [speechRate, setSpeechRate] = useState(1)
   const [speechPitch, setSpeechPitch] = useState(0)
@@ -317,6 +318,7 @@ export function LiveConversationPanel({ voice, gender, languageCode, mirroring }
               <TalkingHeadAvatar
                 ref={talkingHeadRef}
                 gender={gender}
+                avatarId={avatarId}
                 vibe={aiVibe}
                 mode={avatarMode}
                 audioLevel={aiAudioLevel}

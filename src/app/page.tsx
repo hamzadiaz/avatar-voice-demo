@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { ArrowRight, Languages, Settings2, SlidersHorizontal, Sparkles } from "lucide-react"
-import { GenderSelector } from "@/components/gender-selector"
+import { AvatarSelector } from "@/components/avatar-selector"
 import { LiveConversationPanel } from "@/components/live-conversation-panel"
 import { VoiceSelector } from "@/components/voice-selector"
+import { getAvatar, DEFAULT_AVATAR_ID } from "@/lib/avatars"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,7 +25,9 @@ const LANGUAGE_OPTIONS = [
 
 export default function Home() {
   const [step, setStep] = useState<Step>("hero")
-  const [gender, setGender] = useState<VoiceGender>("female")
+  const [avatarId, setAvatarId] = useState(DEFAULT_AVATAR_ID)
+  const selectedAvatar = getAvatar(avatarId)
+  const gender = selectedAvatar.gender as VoiceGender
   const [voice, setVoice] = useState<GeminiVoiceName>("Kore")
   const [model, setModel] = useState<TTSModelId>(DEFAULT_TTS_MODEL)
   const [languageCode, setLanguageCode] = useState("en-US")
@@ -62,7 +65,7 @@ export default function Home() {
               <div>
                 <Badge className="mb-2 border-cyan-500/30 text-cyan-300">Avatar Voice Demo</Badge>
                 <h2 className="text-2xl font-semibold leading-tight text-zinc-100 md:text-3xl">
-                  {step === "gender" ? "Choose your avatar style" : step === "voice" ? "Pick and preview your voice" : "Live conversation"}
+                  {step === "gender" ? "Choose your avatar" : step === "voice" ? "Pick and preview your voice" : "Live conversation"}
                 </h2>
               </div>
               {step !== "conversation" ? <Button variant="ghost" onClick={() => setStep("hero")}>Back to hero</Button> : null}
@@ -90,9 +93,9 @@ export default function Home() {
 
             {step === "gender" ? (
               <Card>
-                <CardHeader><CardTitle>1) Choose Gender</CardTitle></CardHeader>
+                <CardHeader><CardTitle>1) Choose Avatar</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  <GenderSelector value={gender} onChange={setGender} />
+                  <AvatarSelector value={avatarId} onChange={setAvatarId} />
                   <Button onClick={() => setStep("voice")} className="w-full md:w-auto">Continue <ArrowRight className="h-4 w-4" /></Button>
                 </CardContent>
               </Card>
@@ -117,7 +120,7 @@ export default function Home() {
                   <Button variant="outline" onClick={() => setStep("voice")}>Change voice</Button>
                   <Button variant="ghost" onClick={() => setStep("hero")}>Home</Button>
                 </div>
-                <LiveConversationPanel voice={voice} gender={gender} languageCode={languageCode} mirroring={mirroring} />
+                <LiveConversationPanel voice={voice} gender={gender} avatarId={avatarId} languageCode={languageCode} mirroring={mirroring} />
               </div>
             ) : null}
           </motion.section>
