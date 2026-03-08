@@ -225,27 +225,33 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         const modelUrl = (window as any).__headAudioModelUrl
         await headAudio.loadModel(modelUrl)
 
-        // 4. Connect HeadAudio to the audio graph for viseme analysis
-        // SIMPLE approach: just tap into audioStreamGainNode — no rewiring, no DelayNode
-        // HeadAudio has zero outputs so it won't create any extra audio path
-        // The existing graph stays untouched:
-        //   streamWorkletNode → audioStreamGainNode → audioReverbNode → destination
-        //   streamWorkletNode → audioAnalyzerNode → audioSpeechGainNode → audioReverbNode → destination
-        //
-        // IMPORTANT: Mute the second path (analyzer → speech) to prevent double audio
-        // This path exists for TalkingHead's built-in speakText(), not for streaming
-        if (head.audioSpeechGainNode) {
-          head.audioSpeechGainNode.gain.value = 0
-          console.log("[HeadAudio] Muted audioSpeechGainNode to prevent double audio")
-        }
-
+        // 4. Connect HeadAudio and ensure SINGLE audio path
+        // TalkingHead creates two paths from the stream worklet to destination:
+        //   Path A: streamWorkletNode → audioStreamGainNode → audioReverbNode → destination
+        //   Path B: streamWorkletNode → audioAnalyzerNode → audioSpeechGainNode → audioReverbNode → destination
+        // Kill path B completely by disconnecting analyzerNode from everything
         const streamGain = head.audioStreamGainNode
         if (!streamGain) {
           console.error("[HeadAudio] No audioStreamGainNode found")
           return
         }
+
+        // Nuclear approach: disconnect analyzerNode entirely so path B is dead
+        if (head.audioAnalyzerNode) {
+          try { head.audioAnalyzerNode.disconnect() } catch { /* ok */ }
+          console.log("[HeadAudio] Disconnected audioAnalyzerNode (kills duplicate audio path)")
+        }
+        // Also mute speechGainNode as extra safety
+        if (head.audioSpeechGainNode) {
+          head.audioSpeechGainNode.gain.value = 0
+          try { head.audioSpeechGainNode.disconnect() } catch { /* ok */ }
+          console.log("[HeadAudio] Muted + disconnected audioSpeechGainNode")
+        }
+
+        // Now only path A remains: streamGainNode → reverbNode → destination
+        // Tap HeadAudio into streamGainNode for viseme analysis (zero outputs)
         streamGain.connect(headAudio)
-        console.log("[HeadAudio] Connected: streamGainNode → headAudio (analysis only)")
+        console.log("[HeadAudio] Single audio path: streamGain → reverb → dest | streamGain → headAudio")
 
         // 6. Register onvalue callback — EXACTLY as official docs specify
         // HeadAudio.update() handles ALL smoothing (sigmoid easing, alpha ramp, viseme maxes)
