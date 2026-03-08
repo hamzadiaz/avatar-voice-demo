@@ -192,6 +192,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
     )
 
     // Connect HeadAudio worklet for audio-driven lip-sync
+    // Follows official HeadAudio integration: https://github.com/met4citizen/HeadAudio
     const connectHeadAudio = async (head: TalkingHeadInstance) => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -206,70 +207,70 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         }
         if (!HeadAudioNode) { console.error("[HeadAudio] Module not loaded"); return }
 
-        // TalkingHead exposes its AudioContext and speech gain node
         const audioCtx = head.audioCtx
         if (!audioCtx) { console.error("[HeadAudio] No AudioContext on TalkingHead"); return }
 
+        // 1. Register worklet processor
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const workletUrl = (window as any).__headAudioWorkletUrl
         await audioCtx.audioWorklet.addModule(workletUrl)
 
+        // 2. Create HeadAudio node (official params)
         const headAudio = new HeadAudioNode(audioCtx, {
           parameterData: { vadGateActiveDb: -40, vadGateInactiveDb: -60 },
         })
 
+        // 3. Load pre-trained viseme model
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const modelUrl = (window as any).__headAudioModelUrl
         await headAudio.loadModel(modelUrl)
 
-        // Connect HeadAudio to audioReverbNode — this is the final mix node before destination
-        // Both speech (audioSpeechGainNode) and streaming (audioStreamGainNode) converge here
-        // Direct audioStreamGainNode connection doesn't reliably route to HeadAudio worklets
-        const sourceNode = head.audioReverbNode || head.audioStreamGainNode || head.audioSpeechGainNode
-        if (sourceNode) {
-          sourceNode.connect(headAudio)
-          console.log("[HeadAudio] Connected to:", head.audioReverbNode ? "audioReverbNode" : head.audioStreamGainNode ? "audioStreamGainNode" : "audioSpeechGainNode")
-        } else {
-          console.error("[HeadAudio] No audio node found to connect to")
+        // 4. Connect stream gain node to HeadAudio for viseme analysis
+        // Audio graph: streamWorkletNode → audioStreamGainNode → [DelayNode] → audioReverbNode → destination
+        //                                       ↓
+        //                                   HeadAudio (analysis only, no output)
+        const streamGain = head.audioStreamGainNode
+        if (!streamGain) {
+          console.error("[HeadAudio] No audioStreamGainNode found")
           return
         }
+        streamGain.connect(headAudio)
 
-        let visemeCallCount = 0
+        // 5. Add DelayNode (100ms) to compensate for HeadAudio's processing latency
+        // This makes lip movement appear synchronized with the audio output
+        // Official recommendation: "add delay between gain and reverb nodes"
+        const delayNode = new DelayNode(audioCtx, { delayTime: 0.1 })
+        streamGain.disconnect(head.audioReverbNode)
+        streamGain.connect(delayNode)
+        delayNode.connect(head.audioReverbNode)
+        console.log("[HeadAudio] DelayNode (100ms) inserted for lip-sync compensation")
 
-        // HeadAudio.update() already handles all smoothing internally:
-        // - sigmoid easing (sharpness=5)
-        // - alpha ramp-up/ramp-down per viseme
-        // - visemeMaxs caps per viseme type
-        // DO NOT add extra smoothing — it causes double-smoothing = mushy/unnatural
+        // 6. Register onvalue callback — EXACTLY as official docs specify
+        // HeadAudio.update() handles ALL smoothing (sigmoid easing, alpha ramp, viseme maxes)
+        // Use `newvalue` as per official example — NOT `realtime`
         headAudio.onvalue = (key: string, value: number) => {
           if (!head.mtAvatar?.[key]) return
-          visemeCallCount++
-
-          if (value > 0.001) {
-            Object.assign(head.mtAvatar[key], { realtime: value, needsUpdate: true })
-          } else {
-            Object.assign(head.mtAvatar[key], { realtime: null, needsUpdate: true })
-          }
+          Object.assign(head.mtAvatar[key], { newvalue: value, needsUpdate: true })
         }
 
+        // 7. Link HeadAudio.update() to TalkingHead's animation loop
+        head.opt.update = headAudio.update.bind(headAudio)
+
+        // 8. Natural behavior on sentence boundaries
+        let lastEnded = 0
         headAudio.onstarted = () => {
+          const pause = Date.now() - lastEnded
+          if (pause > 150) {
+            // New sentence — take eye contact and gesture naturally
+            head.lookAtCamera(500)
+            try { head.speakWithHands() } catch { /* method may not exist */ }
+          }
           console.log("[HeadAudio] 🎤 Speech detected")
         }
         headAudio.onended = () => {
-          console.log("[HeadAudio] 🔇 Speech ended — viseme calls:", visemeCallCount)
-          // HeadAudio.update() already ramps down active visemes to 0
-          // Just clear any lingering realtime values after a short delay
-          setTimeout(() => {
-            for (const name of headAudio.visemeNames) {
-              if (head.mtAvatar?.[name]) {
-                Object.assign(head.mtAvatar[name], { realtime: null, needsUpdate: true })
-              }
-            }
-          }, 200)
+          lastEnded = Date.now()
+          console.log("[HeadAudio] 🔇 Speech ended")
         }
-
-        // Link update to animation loop
-        head.opt.update = headAudio.update.bind(headAudio)
 
         // Expose for debugging
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -278,7 +279,7 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
         ;(window as any).__talkingHead = head
 
         headAudioReadyRef.current = true
-        console.log("[HeadAudio] ✅ Connected — audio-driven lip-sync active")
+        console.log("[HeadAudio] ✅ Connected — official integration active")
       } catch (err) {
         headAudioReadyRef.current = false
         console.error("[HeadAudio] Failed:", err)
