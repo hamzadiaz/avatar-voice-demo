@@ -245,11 +245,13 @@ export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHead
           if (visemeCallCount <= 5 || visemeCallCount % 50 === 0) {
             console.log(`[HeadAudio] viseme: ${key}=${value.toFixed(3)} (call #${visemeCallCount})`)
           }
-          // Exponential smoothing: lerp between current and target
+          // Exponential smoothing
           const prev = smoothedValues[key] ?? 0
           const smoothed = prev + (value - prev) * (1 - SMOOTHING)
           smoothedValues[key] = smoothed
-          Object.assign(head.mtAvatar[key], { newvalue: smoothed, needsUpdate: true })
+          // Use 'realtime' instead of 'newvalue' — higher priority in TalkingHead's
+          // morph target system, won't be overridden by baseline/system values
+          Object.assign(head.mtAvatar[key], { realtime: smoothed > 0.001 ? smoothed : null, needsUpdate: true })
         }
 
         // Log HeadAudio events for debugging
