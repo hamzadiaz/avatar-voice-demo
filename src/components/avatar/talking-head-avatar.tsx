@@ -53,7 +53,7 @@ const VIBE_TO_MOOD: Record<VibeType, string> = {
 
 export const TalkingHeadAvatar = forwardRef<TalkingHeadAvatarHandle, TalkingHeadAvatarProps>(
   function TalkingHeadAvatar({ gender, avatarId, vibe = "Neutral", audioLevel = 0, className }, ref) {
-    const avatar = getAvatar(avatarId ?? (gender === "male" ? "avatarsdk" : "brunette"))
+    const avatar = getAvatar(avatarId ?? (gender === "male" ? "avatarsdk" : "julia-black"))
     const containerRef = useRef<HTMLDivElement | null>(null)
     const headRef = useRef<TalkingHeadInstance | null>(null)
     const streamingRef = useRef(false)
